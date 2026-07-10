@@ -1,7 +1,7 @@
 {
   "toolkit_version": "1.0.0",
   "manifest_version": 1,
-  "repository": "",
+  "repository": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit",
   "apps": {
     "ir_raman_phase_finder": {
       "name": "IR/Raman Phase Finder",
@@ -9,11 +9,11 @@
       "entry_module": "vibrational_finder.apps.finder_gui",
       "folder": "Vibrational_Finder",
       "requirements": "pyproject.toml",
-      "release_url": "",
-      "manifest_url": "",
-      "update_manifest_url": "",
-      "installer_url": "",
-      "installer_sha256": ""
+      "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/latest",
+      "manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/manifest.json",
+      "update_manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/updates/ir_raman_phase_finder.json",
+      "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
+      "installer_sha256": "c3ecc985c49d49ebcefb92c297086215155bd40b24423a211f5ad6ccd8622e7d"
     }
   }
 }

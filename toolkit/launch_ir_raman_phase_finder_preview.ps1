@@ -250,6 +250,93 @@ function Show-OwnedQuestion {
     return $result
 }
 
+function Invoke-UpdateDownload {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+    if (-not $Url) { throw "Update installer URL is not available." }
+    $errors = New-Object System.Collections.Generic.List[string]
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {
+    }
+
+    try {
+        Write-LauncherLog "Downloading update with Invoke-WebRequest: $Url"
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 10 -Headers @{ "User-Agent" = "IR-Raman-Phase-Finder-Updater" }
+        if ((Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1024)) { return }
+        $errors.Add("Invoke-WebRequest produced an empty or incomplete file.") | Out-Null
+    } catch {
+        $errors.Add("Invoke-WebRequest: " + $_.Exception.Message) | Out-Null
+    }
+
+    try {
+        Write-LauncherLog "Downloading update with BITS: $Url"
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        Start-BitsTransfer -Source $Url -Destination $OutFile -DisplayName "IR/Raman Phase Finder update" -Description "Downloading IR/Raman Phase Finder update" -ErrorAction Stop
+        if ((Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1024)) { return }
+        $errors.Add("BITS produced an empty or incomplete file.") | Out-Null
+    } catch {
+        $errors.Add("BITS: " + $_.Exception.Message) | Out-Null
+    }
+
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        try {
+            Write-LauncherLog "Downloading update with curl.exe: $Url"
+            Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            $curlLog = Join-Path ([System.IO.Path]::GetDirectoryName($OutFile)) "curl_update.log"
+            $curlProcess = Start-Process -FilePath $curl.Source -ArgumentList @("-L", "--fail", "--retry", "3", "--connect-timeout", "30", "--max-time", "300", "-A", "IR-Raman-Phase-Finder-Updater", "-o", $OutFile, $Url) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $curlLog -RedirectStandardError $curlLog
+            if ($curlProcess.ExitCode -eq 0 -and (Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1024)) { return }
+            $errors.Add("curl.exe exit code: " + $curlProcess.ExitCode) | Out-Null
+        } catch {
+            $errors.Add("curl.exe: " + $_.Exception.Message) | Out-Null
+        }
+    } else {
+        $errors.Add("curl.exe is not available.") | Out-Null
+    }
+
+    throw "Could not download the update installer automatically.`r`n" + ($errors -join "`r`n")
+}
+
+function Download-And-RunUpdate {
+    param([string]$Url, [string]$ExpectedSha256, [string]$LatestVersion)
+    if (-not $Url) { throw "Update installer URL is not available." }
+    Set-Step 3 "Downloading" "The update installer can take a few minutes on a slow connection." "Blue"
+    [System.Windows.Forms.Application]::DoEvents()
+    Ensure-Folder $updateRoot
+    $fileName = [System.IO.Path]::GetFileName(([System.Uri]$Url).AbsolutePath)
+    if (-not $fileName) { $fileName = "IR_Raman_analysis_Toolkit_Setup_$LatestVersion.exe" }
+    $targetPath = Join-Path $updateRoot $fileName
+    Set-Step 3 "Downloading" ("Downloading update " + $LatestVersion) "Blue"
+    [System.Windows.Forms.Application]::DoEvents()
+    Invoke-UpdateDownload $Url $targetPath
+    if ($ExpectedSha256) {
+        Set-Step 3 "Checking" "Verifying downloaded installer" "Blue"
+        [System.Windows.Forms.Application]::DoEvents()
+        $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetPath).Hash.ToLowerInvariant()
+        if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+            Remove-Item -LiteralPath $targetPath -Force -ErrorAction SilentlyContinue
+            throw "Downloaded installer checksum does not match the update manifest."
+        }
+    }
+    Set-Step 3 "Ready" "Starting update installer" "Green"
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Process -FilePath $targetPath | Out-Null
+}
+
+function Stop-PreparedAppProcess {
+    param([System.Diagnostics.Process]$Process)
+    if ($Process -and -not $Process.HasExited) {
+        try {
+            Write-LauncherLog "Stopping prepared Python app before update installer starts. PID=$($Process.Id)"
+            $Process.Kill()
+        } catch {
+        }
+    }
+}
+
 $appRoot = Resolve-AppRoot
 $sciRoot = Join-Path $env:LOCALAPPDATA "Sci"
 $envRoot = Join-Path $sciRoot "env"
@@ -476,6 +563,17 @@ try {
             if ($appInfo.installer_sha256) { $installerSha256 = [string]$appInfo.installer_sha256 }
         } catch {}
     }
+    $updateStatus = [ordered]@{
+        checked_at = (Get-Date).ToString("s")
+        app_id = $AppId
+        current_version = $localVersion
+        latest_version = $localVersion
+        update_available = $false
+        release_url = $releaseUrl
+        installer_url = $installerUrl
+        installer_sha256 = $installerSha256
+        error = $null
+    }
     if ($manifestUrl -or $updateManifestUrl) {
         try {
             $remoteUrl = $manifestUrl
@@ -484,25 +582,66 @@ try {
             if ($remote -is [string]) { $remote = $remote | ConvertFrom-Json }
             $remoteApp = $remote
             if ($remote.apps -and $remote.apps.$AppId) { $remoteApp = $remote.apps.$AppId }
-            if ($remoteApp.version -and (Compare-VersionText ([string]$remoteApp.version) $localVersion) -gt 0) {
-                if ($remoteApp.release_url) { $releaseUrl = [string]$remoteApp.release_url }
-                if ($remoteApp.installer_url) { $installerUrl = [string]$remoteApp.installer_url }
-                Set-Step 3 "Update" ("$localVersion -> " + [string]$remoteApp.version) "Blue"
-                $choice = Show-OwnedQuestion "A new IR/Raman Phase Finder version is available: $($remoteApp.version).`r`nOpen the release page now?" "IR/Raman Phase Finder update"
-                if ($choice -eq [System.Windows.Forms.DialogResult]::Yes -and $releaseUrl) {
-                    Start-Process $releaseUrl | Out-Null
-                    $script:Form.Close()
-                    return
+            if ($remoteApp.version) {
+                $latestVersion = [string]$remoteApp.version
+                $updateStatus.latest_version = $latestVersion
+                if ((Compare-VersionText $latestVersion $localVersion) -gt 0) {
+                    $updateStatus.update_available = $true
+                    if ($remoteApp.release_url) { $updateStatus.release_url = [string]$remoteApp.release_url }
+                    if ($remoteApp.installer_url) { $updateStatus.installer_url = [string]$remoteApp.installer_url }
+                    if ($remoteApp.installer_sha256) { $updateStatus.installer_sha256 = [string]$remoteApp.installer_sha256 }
+                    if ($remoteApp.assets -and $remoteApp.assets.Count -gt 0) {
+                        $asset = $remoteApp.assets | Select-Object -First 1
+                        if ($asset.url) { $updateStatus.installer_url = [string]$asset.url }
+                        if ($asset.sha256) { $updateStatus.installer_sha256 = [string]$asset.sha256 }
+                    }
+                    Set-Step 3 "Update" ("$localVersion -> $latestVersion") "Blue"
+                    $summaryLines = New-Object System.Collections.Generic.List[string]
+                    if ($remoteApp.summary) {
+                        foreach ($line in $remoteApp.summary) {
+                            $textLine = [string]$line
+                            if ($textLine.Trim()) { $summaryLines.Add("- " + $textLine.Trim()) | Out-Null }
+                        }
+                    }
+                    if ($summaryLines.Count -eq 0) {
+                        $summaryLines.Add("- See the release notes for details.") | Out-Null
+                    }
+                    $message = "A new IR/Raman Phase Finder version is available: $latestVersion.`r`nCurrent version: $localVersion`r`n`r`nWhat changed:`r`n" + ($summaryLines -join "`r`n") + "`r`n`r`nDownload and start the installer now?"
+                    $choice = Show-OwnedQuestion $message "IR/Raman Phase Finder update available"
+                    if ($choice -eq [System.Windows.Forms.DialogResult]::Yes) {
+                        $downloadTarget = $updateStatus.installer_url
+                        if (-not $downloadTarget) { $downloadTarget = $updateStatus.release_url }
+                        try {
+                            Download-And-RunUpdate $downloadTarget $updateStatus.installer_sha256 $latestVersion
+                            ($updateStatus | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath (Join-Path $updateRoot "$AppId.json") -Encoding UTF8
+                            Stop-PreparedAppProcess $appProcess
+                            $script:Form.Close()
+                            return
+                        } catch {
+                            $fallbackMessage = "The automatic update download failed:`r`n" + $_.Exception.Message + "`r`n`r`nOpen the release page instead?"
+                            $fallbackChoice = Show-OwnedQuestion $fallbackMessage "IR/Raman Phase Finder update"
+                            if ($fallbackChoice -eq [System.Windows.Forms.DialogResult]::Yes -and $updateStatus.release_url) {
+                                Start-Process $updateStatus.release_url | Out-Null
+                                Stop-PreparedAppProcess $appProcess
+                                $script:Form.Close()
+                                return
+                            }
+                        }
+                    }
+                } else {
+                    Set-Step 3 "OK" ("No update available. Current version: $localVersion") "Green"
                 }
             } else {
                 Set-Step 3 "OK" ("No update available. Current version: $localVersion") "Green"
             }
         } catch {
+            $updateStatus.error = $_.Exception.Message
             Set-Step 3 "Offline" "Update check unavailable" "Muted"
         }
     } else {
         Set-Step 3 "OK" "No update source configured" "Muted"
     }
+    ($updateStatus | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath (Join-Path $updateRoot "$AppId.json") -Encoding UTF8
 
     Pause-PreviewStep
     Set-Step 4 "Opening..." "Showing the main application window" "Blue"

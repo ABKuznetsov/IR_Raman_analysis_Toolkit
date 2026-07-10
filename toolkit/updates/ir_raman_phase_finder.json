@@ -1,0 +1,27 @@
+{
+  "app_id": "ir_raman_phase_finder",
+  "name": "IR/Raman Phase Finder",
+  "version": "0.1.1",
+  "channel": "stable",
+  "minimum_windows": "10.0",
+  "published_at": "2026-07-10",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.1",
+  "assets": [
+    {
+      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
+      "type": "installer",
+      "platform": "windows-x64",
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
+      "sha256": "c3ecc985c49d49ebcefb92c297086215155bd40b24423a211f5ad6ccd8622e7d",
+      "size_bytes": 3845017
+    }
+  ],
+  "summary": [
+    "Add Finder-style plot navigation: rectangle zoom, X-axis wheel zoom and double-click full-range reset.",
+    "Add an expanded plot context menu with export, full-range and layer visibility controls.",
+    "Fix the Windows desktop shortcut name so it is created directly on the Desktop.",
+    "Use the shared Sci runtime and AppData layout for clean installation."
+  ],
+  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
+  "installer_sha256": "c3ecc985c49d49ebcefb92c297086215155bd40b24423a211f5ad6ccd8622e7d"
+}
