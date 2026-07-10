@@ -5,7 +5,7 @@
   "apps": {
     "ir_raman_phase_finder": {
       "name": "IR/Raman Phase Finder",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "entry_module": "vibrational_finder.apps.finder_gui",
       "folder": "Vibrational_Finder",
       "requirements": "pyproject.toml",

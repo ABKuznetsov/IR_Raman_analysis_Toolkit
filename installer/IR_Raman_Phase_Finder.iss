@@ -1,5 +1,5 @@
 #define MyAppName "IR/Raman Phase Finder"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppPublisher "ABKuznetsov"
 #define MyAppURL ""
 #define MyAppExeName "launch_ir_raman_phase_finder_silent.vbs"
