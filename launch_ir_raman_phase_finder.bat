@@ -11,6 +11,6 @@ if not exist "%PREVIEW_SCRIPT%" (
     exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PREVIEW_SCRIPT%" -AppId ir_raman_phase_finder
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "%PREVIEW_SCRIPT%" -AppId ir_raman_phase_finder
 endlocal
 exit /b %ERRORLEVEL%

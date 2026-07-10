@@ -2,7 +2,6 @@
 #define MyAppVersion "0.1.1"
 #define MyAppPublisher "ABKuznetsov"
 #define MyAppURL ""
-#define MyAppExeName "launch_ir_raman_phase_finder_silent.vbs"
 #define MyShortcutName "IR Raman Phase Finder"
 
 [Setup]
@@ -44,14 +43,14 @@ Name: "setupenv"; Description: "Prepare shared Sci Python environment after inst
 Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "installer\*,.git\*,.agents\*,.codex\*,.venv\*,__pycache__\*,*.pyc,*.pyo,.DS_Store,.ruff_cache\*,.pytest_cache\*,build\*,dist\*,logs\*,.cache\*,*.egg-info\*"
 
 [Icons]
-Name: "{group}\{#MyShortcutName}"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
+Name: "{group}\{#MyShortcutName}"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -File ""{app}\toolkit\launch_ir_raman_phase_finder_preview.ps1"" -AppId ir_raman_phase_finder"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
 Name: "{group}\Setup Sci Environment"; Filename: "{app}\toolkit\setup_sci_env.bat"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyShortcutName}"; Filename: "{uninstallexe}"; IconFilename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyShortcutName}"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyShortcutName}"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -File ""{app}\toolkit\launch_ir_raman_phase_finder_preview.ps1"" -AppId ir_raman_phase_finder"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\toolkit\setup_sci_env.bat"; Description: "Prepare Sci environment"; Flags: postinstall runascurrentuser skipifsilent; Tasks: setupenv
-Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; Description: "Launch IR/Raman Phase Finder"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -File ""{app}\toolkit\launch_ir_raman_phase_finder_preview.ps1"" -AppId ir_raman_phase_finder"; Description: "Launch IR/Raman Phase Finder"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

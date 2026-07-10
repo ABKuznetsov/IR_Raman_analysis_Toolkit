@@ -13,7 +13,7 @@
       "manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/manifest.json",
       "update_manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/updates/ir_raman_phase_finder.json",
       "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
-      "installer_sha256": "c3ecc985c49d49ebcefb92c297086215155bd40b24423a211f5ad6ccd8622e7d"
+      "installer_sha256": "77157d433c8d978048af984e72a94d71ef4eddaf0278c28a2b9d1c51de3b47ba"
     }
   }
 }

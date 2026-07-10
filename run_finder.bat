@@ -56,7 +56,7 @@ if not "%EXIT_CODE%"=="0" (
     echo.
     echo IR/Raman Phase Finder exited with code %EXIT_CODE%.
     echo Last log lines:
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path '%LOG_FILE%') { Get-Content -LiteralPath '%LOG_FILE%' -Tail 30 }"
+    powershell -NoProfile -Command "if (Test-Path '%LOG_FILE%') { Get-Content -LiteralPath '%LOG_FILE%' -Tail 30 }"
     pause
 )
 endlocal & exit /b %EXIT_CODE%
