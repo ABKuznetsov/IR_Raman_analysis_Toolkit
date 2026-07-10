@@ -10,7 +10,9 @@ from pathlib import Path
 os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")
 
 import pyqtgraph as pg
+import numpy as np
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings
 from PySide6.QtCore import QTimer
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
@@ -50,8 +52,8 @@ from PySide6.QtWidgets import (
 from finder_core.data_sources import SourceQuery
 from finder_core.chemistry import parse_formula_elements
 from finder_core.models import CandidateRecord, MatchScore, SignalKind
-from vibrational_finder.io import load_xy_spectrum
-from vibrational_finder.matching import rank_candidates
+from vibrational_finder.io import load_xy_spectrum, supported_spectrum_extensions
+from vibrational_finder.matching import MatchingOptions, rank_candidates
 from vibrational_finder.models import CompoundCandidate, ObservedSpectrum, ReferenceSpectrum, VibrationalMatchResult
 from vibrational_finder.preprocessing import PreprocessingOptions, preprocess_spectrum
 from vibrational_finder.services import CifStructureSource, FolderLibrarySource, RruffSource, UserLibrarySource
@@ -149,6 +151,7 @@ class FinderActionBar(QWidget):
         self.search_input = QLineEdit()
         self.display_mode = QComboBox()
         self.normalize_checkbox = QCheckBox("Normalize")
+        self.laser_wavelength_spin = QDoubleSpinBox()
         self.smooth_button = QPushButton("Smooth")
         self.remove_background_button = QPushButton("Remove background")
         self.reset_data_button = QPushButton("Reset data")
@@ -168,6 +171,15 @@ class FinderActionBar(QWidget):
         self.reset_view_button.setStyleSheet(_glass_button_style("#5f6368", "#8a8d91"))
 
         self.display_mode.addItems(["One", "All selected"])
+        self.laser_wavelength_spin.setRange(0.0, 2000.0)
+        self.laser_wavelength_spin.setDecimals(1)
+        self.laser_wavelength_spin.setSingleStep(1.0)
+        self.laser_wavelength_spin.setValue(532.0)
+        self.laser_wavelength_spin.setSuffix(" nm")
+        self.laser_wavelength_spin.setSpecialValueText("All lasers")
+        self.laser_wavelength_spin.setToolTip("User laser wavelength for Raman references. Set 0 to show all.")
+        self.laser_wavelength_spin.setKeyboardTracking(False)
+        self.laser_wavelength_spin.setMinimumWidth(96)
         self.search_input.setPlaceholderText("Formula / compound name / entry id")
 
         layout.addWidget(self.smooth_button)
@@ -176,6 +188,8 @@ class FinderActionBar(QWidget):
         layout.addWidget(QLabel("Show"))
         layout.addWidget(self.display_mode)
         layout.addWidget(self.normalize_checkbox)
+        layout.addWidget(QLabel("Laser"))
+        layout.addWidget(self.laser_wavelength_spin)
         layout.addStretch(1)
         layout.addWidget(self.search_input, 1)
         layout.addWidget(self.search_button)
@@ -275,7 +289,6 @@ class CandidateTableWidget(QTableWidget):
             ]
             for column, value in enumerate(values):
                 self.setItem(row, column, QTableWidgetItem(value))
-        self._resize_columns()
 
     def set_records(self, records: list[CandidateRecord]) -> None:
         self.setRowCount(len(records))
@@ -294,7 +307,6 @@ class CandidateTableWidget(QTableWidget):
             ]
             for column, value in enumerate(values):
                 self.setItem(row, column, QTableWidgetItem(value))
-        self._resize_columns()
 
     def _resize_columns(self) -> None:
         self.resizeColumnsToContents()
@@ -345,7 +357,6 @@ class SelectedCompoundsTableWidget(QTableWidget):
                     item.setBackground(color)
                     item.setForeground(QColor("#ffffff"))
                 self.setItem(row, column, item)
-        self._resize_columns()
 
     def _resize_columns(self) -> None:
         self.resizeColumnsToContents()
@@ -364,6 +375,8 @@ class VibrationalFinderWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("IR/Raman Phase Finder")
         self.resize(1500, 850)
+        self.settings = QSettings("IRRamanPhaseFinder", "Standalone")
+        self.setAcceptDrops(True)
         self.theme_preference = "System"
         self.current_theme = self._system_theme()
         self.plot_settings_panel: PlotViewSettingsWidget | None = None
@@ -378,6 +391,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.ftir_spectra: list[ObservedSpectrum] = []
         self.reference_records: list[CandidateRecord] = []
         self.reference_spectra: list[ReferenceSpectrum] = []
+        self._current_preview_reference: ReferenceSpectrum | None = None
         self.user_libraries: list[UserLibrarySource | FolderLibrarySource | CifStructureSource] = []
         self.rruff_source = RruffSource()
         self.openspecy_source = OpenSpecyLibrarySource()
@@ -399,6 +413,7 @@ class VibrationalFinderWindow(QMainWindow):
         self._create_main_splitter()
         QApplication.styleHints().colorSchemeChanged.connect(lambda _scheme: self._apply_theme("System") if self.theme_preference == "System" else None)
         self._apply_theme(self.theme_preference)
+        QTimer.singleShot(0, self._restore_ui_state)
 
     def _create_sidebar(self) -> None:
         self.sidebar = QWidget()
@@ -450,9 +465,13 @@ class VibrationalFinderWindow(QMainWindow):
         self.action_bar.search_button.clicked.connect(self._search_active_spectrum)
         self.action_bar.search_input.returnPressed.connect(self._search_active_spectrum)
         self.action_bar.reset_view_button.clicked.connect(self._reset_plot_view)
+        self.action_bar.normalize_checkbox.setChecked(True)
+        self.action_bar.normalize_checkbox.toggled.connect(self._on_normalization_changed)
+        self.action_bar.laser_wavelength_spin.valueChanged.connect(lambda _value: self._search_active_spectrum())
         self.center_layout.addWidget(self.action_bar)
 
         self.match_plot = create_vibrational_plot_widget()
+        setattr(self.match_plot.plotItem.vb, "double_click_reset_callback", self._reset_plot_view)
         self.match_plot.setMinimumSize(1, 1)
         self.match_plot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.match_plot.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -515,8 +534,8 @@ class VibrationalFinderWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        layout.addWidget(splitter)
+        self.elements_splitter = QSplitter(Qt.Orientation.Vertical)
+        layout.addWidget(self.elements_splitter)
 
         element_panel = QWidget()
         element_layout = QVBoxLayout(element_panel)
@@ -527,7 +546,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.element_table.leftClicked.connect(self._toggle_required_element)
         self.element_table.rightClicked.connect(self._toggle_optional_element)
         element_layout.addWidget(self.element_table, 1)
-        splitter.addWidget(element_panel)
+        self.elements_splitter.addWidget(element_panel)
 
         controls_panel = QWidget()
         controls_layout = QVBoxLayout(controls_panel)
@@ -567,10 +586,10 @@ class VibrationalFinderWindow(QMainWindow):
         self.selected_table = SelectedCompoundsTableWidget()
         controls_layout.addWidget(QLabel("Selected compounds"))
         controls_layout.addWidget(self.selected_table, 1)
-        splitter.addWidget(controls_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([320, 430])
+        self.elements_splitter.addWidget(controls_panel)
+        self.elements_splitter.setStretchFactor(0, 1)
+        self.elements_splitter.setStretchFactor(1, 2)
+        self.elements_splitter.setSizes([320, 430])
         self._refresh_element_table()
         return widget
 
@@ -1062,6 +1081,75 @@ class VibrationalFinderWindow(QMainWindow):
     def _not_implemented_project_files(self) -> None:
         QMessageBox.information(self, "Project files", "Project save/load will be ported from XRD Finder in the next step.")
 
+    def dragEnterEvent(self, event) -> None:  # type: ignore[override]
+        if self._drop_paths(event):
+            event.acceptProposedAction()
+            self.statusBar().showMessage("Drop to import spectra or load a reference folder.", 3000)
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._drop_paths(event):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:  # type: ignore[override]
+        paths = self._drop_paths(event)
+        if not paths:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self._import_dropped_paths(paths)
+
+    def _drop_paths(self, event) -> list[Path]:
+        mime_data = event.mimeData()
+        if not mime_data.hasUrls():
+            return []
+        paths: list[Path] = []
+        suffixes = set(supported_spectrum_extensions())
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if path.is_dir() or path.suffix.lower() in suffixes:
+                paths.append(path)
+        return paths
+
+    def _import_dropped_paths(self, paths: list[Path]) -> None:
+        imported = 0
+        loaded_folders = 0
+        failures: list[str] = []
+        for path in paths:
+            try:
+                if path.is_dir():
+                    self._load_library_folder_path(str(path))
+                    loaded_folders += 1
+                    continue
+                self._load_experiment_path(str(path), self._kind_from_path(path))
+                imported += 1
+            except Exception as exc:
+                failures.append(f"{path.name}: {exc}")
+        if loaded_folders and self.active_spectrum is not None:
+            self._search_active_spectrum()
+        elif loaded_folders:
+            self._browse_reference_sources()
+        if failures:
+            QMessageBox.warning(self, "Drop import", "Some dropped items could not be imported:\n\n" + "\n".join(failures[:8]))
+        message_parts = []
+        if imported:
+            message_parts.append(f"imported {imported} spectrum/spectra")
+        if loaded_folders:
+            message_parts.append(f"loaded {loaded_folders} reference folder(s)")
+        if message_parts:
+            self.statusBar().showMessage("Drop complete: " + ", ".join(message_parts), 7000)
+
+    def _kind_from_path(self, path: Path) -> SignalKind:
+        text = " ".join([path.stem.lower(), *(part.lower() for part in path.parts)])
+        if "ftir" in text or "infrared" in text or re.search(r"(^|[_\-\s])ir($|[_\-\s])", text):
+            return SignalKind.FTIR
+        return SignalKind.RAMAN
+
     def _import_scientific_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -1070,9 +1158,7 @@ class VibrationalFinderWindow(QMainWindow):
             SPECTRUM_FILE_FILTER,
         )
         for path in paths:
-            lower = Path(path).stem.lower()
-            kind = SignalKind.FTIR if "ftir" in lower or "ir" in lower else SignalKind.RAMAN
-            self._load_experiment_path(path, kind)
+            self._load_experiment_path(path, self._kind_from_path(Path(path)))
 
     def _import_experiment(self, kind: SignalKind) -> None:
         title = "Import Raman spectrum" if kind == SignalKind.RAMAN else "Import FTIR spectrum"
@@ -1139,6 +1225,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.results = []
         self.candidate_table.set_results([])
         self._set_card(None)
+        self._current_preview_reference = None
         self._refresh_project_tree()
         self._redraw_plot()
 
@@ -1235,7 +1322,7 @@ class VibrationalFinderWindow(QMainWindow):
         if use_openspecy:
             candidates.extend(candidate for candidate in self.openspecy_source.load_candidates(SourceQuery(text=text, kind=self.active_spectrum.kind, formula=formula)) if candidate.reference is not None)
         candidates = [candidate for candidate in candidates if self._record_passes_element_gate(candidate)]
-        self.results = rank_candidates(self.active_spectrum, candidates)
+        self.results = rank_candidates(self.active_spectrum, candidates, self._matching_options())
         self.browse_records = []
         self.candidate_table.set_results(self.results)
         self._update_profile_view_context()
@@ -1364,11 +1451,10 @@ class VibrationalFinderWindow(QMainWindow):
             self.element_table.set_element_state(element, self.element_states.get(element, "excluded"))
         required = ", ".join(sorted(self.required_elements, key=element_sort_key)) or "none"
         optional = ", ".join(sorted(self.optional_elements, key=element_sort_key)) or "none"
-        excluded = (
-            "all others"
-            if self.required_elements and self.exclude_all_other_elements
-            else ", ".join(sorted(self._excluded_elements(), key=element_sort_key)) or "none"
-        )
+        if self.exclude_all_other_elements:
+            excluded = "all others" if self.required_elements or self.optional_elements else "all elements"
+        else:
+            excluded = ", ".join(sorted(self._excluded_elements(), key=element_sort_key)) or "none"
         if hasattr(self, "element_gate_label"):
             self.element_gate_label.setText(f"Required: {required}    Optional: {optional}    Excluded: {excluded}")
 
@@ -1388,13 +1474,12 @@ class VibrationalFinderWindow(QMainWindow):
         self.element_table.set_element_state(element, state)
 
     def _excluded_elements(self) -> list[str]:
-        if not self.required_elements:
-            return []
         if self.exclude_all_other_elements:
+            allowed_elements = self.required_elements | self.optional_elements
             return [
                 element
                 for element in self._element_symbols()
-                if element not in self.required_elements
+                if element not in allowed_elements
                 and self.element_states.get(element, "excluded") not in {"optional", "any"}
             ]
         return [element for element, state in self.element_states.items() if state == "excluded"]
@@ -1403,15 +1488,43 @@ class VibrationalFinderWindow(QMainWindow):
         return self.element_table.element_symbols if hasattr(self, "element_table") else []
 
     def _record_passes_element_gate(self, record: CandidateRecord) -> bool:
-        if not self.required_elements and not self._excluded_elements():
-            return True
-        elements = parse_formula_elements(record.formula)
-        if self.required_elements and not self.required_elements.issubset(elements):
+        if not self._record_passes_laser_gate(record):
             return False
         excluded = set(self._excluded_elements())
+        if not self.required_elements and not self.optional_elements and not excluded:
+            return True
+        elements = parse_formula_elements(record.formula)
+        if excluded and not elements:
+            return False
+        if self.required_elements and not self.required_elements.issubset(elements):
+            return False
         if excluded and elements & excluded:
             return False
         return True
+
+    def _selected_laser_wavelength_nm(self) -> float:
+        if not hasattr(self, "action_bar"):
+            return 0.0
+        return float(self.action_bar.laser_wavelength_spin.value())
+
+    def _record_laser_wavelength_nm(self, record: CandidateRecord) -> float | None:
+        raw_value = str(record.metadata.get("laser_nm", "") or "")
+        match = re.search(r"(\d+(?:[.,]\d+)?)", raw_value)
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(",", "."))
+        except ValueError:
+            return None
+
+    def _record_passes_laser_gate(self, record: CandidateRecord) -> bool:
+        selected_laser = self._selected_laser_wavelength_nm()
+        if selected_laser <= 0.0 or record.kind != SignalKind.RAMAN:
+            return True
+        record_laser = self._record_laser_wavelength_nm(record)
+        if record_laser is None:
+            return False
+        return abs(record_laser - selected_laser) <= 2.0
 
     def _refresh_project_tree(self) -> None:
         self.project_tree.clear()
@@ -1493,9 +1606,10 @@ class VibrationalFinderWindow(QMainWindow):
             self.legend_item = None
             self._set_legend_visible(bool(getattr(self.plot_view_settings, "legend_visible", True)))
         if self.active_spectrum is not None and getattr(self.plot_view_settings, "layer_observed_visible", True):
+            x, y = self._display_trace_xy(self.active_spectrum)
             self.match_plot.plot(
-                self.active_spectrum.x,
-                self.active_spectrum.y,
+                x,
+                y,
                 pen=pg.mkPen(self._plot_observed_color(), width=float(getattr(self.plot_view_settings, "observed_width", 1.35))),
                 name="Observed",
             )
@@ -1504,7 +1618,7 @@ class VibrationalFinderWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction("Export image...", self._export_plot_image)
         menu.addSeparator()
-        menu.addAction("Show full spectrum", self._reset_plot_view)
+        menu.addAction("Show full spectrum", self._show_full_plot_range)
         menu.addSeparator()
         menu.addAction(self._plot_setting_action("Grid", "grid_visible"))
         menu.addAction(self._plot_setting_action("Legend", "legend_visible"))
@@ -1584,22 +1698,27 @@ class VibrationalFinderWindow(QMainWindow):
         self._redraw_plot()
         self._set_card(result)
         if result is None or result.aligned_reference is None:
+            self._current_preview_reference = None
             return
         ref = result.aligned_reference
+        self._current_preview_reference = ref
         if getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            x, y = self._display_trace_xy(ref)
             self.match_plot.plot(
-                ref.x,
-                ref.y,
+                x,
+                y,
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=result.candidate.name,
             )
 
     def _preview_reference(self, reference: ReferenceSpectrum) -> None:
         self._redraw_plot()
+        self._current_preview_reference = reference
         if getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            x, y = self._display_trace_xy(reference)
             self.match_plot.plot(
-                reference.x,
-                reference.y,
+                x,
+                y,
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=reference.name,
             )
@@ -1640,10 +1759,12 @@ class VibrationalFinderWindow(QMainWindow):
             aligned_reference=reference,
         )
         self._redraw_plot()
+        self._current_preview_reference = reference
         if getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            x, y = self._display_trace_xy(reference)
             self.match_plot.plot(
-                reference.x,
-                reference.y,
+                x,
+                y,
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=reference.name,
             )
@@ -2080,8 +2201,171 @@ class VibrationalFinderWindow(QMainWindow):
     def _line_color_edited(self) -> None:
         self._auto_line_colors = False
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._save_ui_state()
+        super().closeEvent(event)
+
+    def _settings_bool(self, key: str, default: bool) -> bool:
+        value = self.settings.value(key, default)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _save_header_state(self, key: str, table: QTableWidget | None) -> None:
+        if table is not None:
+            self.settings.setValue(key, table.horizontalHeader().saveState())
+
+    def _restore_header_state(self, key: str, table: QTableWidget | None) -> None:
+        if table is None:
+            return
+        state = self.settings.value(key)
+        if state:
+            table.horizontalHeader().restoreState(state)
+
+    def _save_ui_state(self) -> None:
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("window/state", self.saveState())
+        self.settings.setValue("splitters/main", self.main_splitter.saveState())
+        self.settings.setValue("splitters/center", self.center_splitter.saveState())
+        if hasattr(self, "elements_splitter"):
+            self.settings.setValue("splitters/elements", self.elements_splitter.saveState())
+        self.settings.setValue("tabs/right_index", self.right_tabs.currentIndex())
+        self.settings.setValue("controls/display_mode", self.action_bar.display_mode.currentText())
+        self.settings.setValue("controls/normalize", self.action_bar.normalize_checkbox.isChecked())
+        self.settings.setValue("controls/laser_nm", self.action_bar.laser_wavelength_spin.value())
+        self.settings.setValue("controls/include_raman", self.include_raman_checkbox.isChecked())
+        self.settings.setValue("controls/include_ftir", self.include_ftir_checkbox.isChecked())
+        self.settings.setValue("theme/preference", self.theme_preference)
+        for label, checkbox in getattr(self, "source_checks", {}).items():
+            self.settings.setValue(f"sources/{label}", checkbox.isChecked())
+        self._save_header_state("headers/candidates", self.candidate_table)
+        self._save_header_state("headers/selected", self.selected_table)
+        self._save_header_state("headers/databases", self.database_table)
+        self._save_header_state("headers/bands", self.band_table)
+        self.settings.sync()
+
+    def _restore_ui_state(self) -> None:
+        geometry = self.settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        window_state = self.settings.value("window/state")
+        if window_state:
+            self.restoreState(window_state)
+        main_state = self.settings.value("splitters/main")
+        if main_state:
+            self.main_splitter.restoreState(main_state)
+        center_state = self.settings.value("splitters/center")
+        if center_state:
+            self.center_splitter.restoreState(center_state)
+        elements_state = self.settings.value("splitters/elements")
+        if elements_state and hasattr(self, "elements_splitter"):
+            self.elements_splitter.restoreState(elements_state)
+        right_index = int(self.settings.value("tabs/right_index", self.right_tabs.currentIndex()) or 0)
+        if 0 <= right_index < self.right_tabs.count():
+            self.right_tabs.setCurrentIndex(right_index)
+        theme = str(self.settings.value("theme/preference", self.theme_preference, type=str) or self.theme_preference)
+        if theme != self.theme_preference:
+            self._apply_theme(theme)
+        display_mode = str(self.settings.value("controls/display_mode", self.action_bar.display_mode.currentText(), type=str) or "")
+        if display_mode:
+            self.action_bar.display_mode.setCurrentText(display_mode)
+        blocked = self.action_bar.laser_wavelength_spin.blockSignals(True)
+        self.action_bar.laser_wavelength_spin.setValue(float(self.settings.value("controls/laser_nm", 532.0) or 532.0))
+        self.action_bar.laser_wavelength_spin.blockSignals(blocked)
+        self.action_bar.normalize_checkbox.setChecked(self._settings_bool("controls/normalize", True))
+        self.include_raman_checkbox.setChecked(self._settings_bool("controls/include_raman", True))
+        self.include_ftir_checkbox.setChecked(self._settings_bool("controls/include_ftir", True))
+        for label, checkbox in getattr(self, "source_checks", {}).items():
+            checkbox.setChecked(self._settings_bool(f"sources/{label}", checkbox.isChecked()))
+        self._restore_header_state("headers/candidates", self.candidate_table)
+        self._restore_header_state("headers/selected", self.selected_table)
+        self._restore_header_state("headers/databases", self.database_table)
+        self._restore_header_state("headers/bands", self.band_table)
+        self._redraw_plot()
+
+    def _normalization_mode(self) -> str:
+        if hasattr(self, "action_bar") and self.action_bar.normalize_checkbox.isChecked():
+            return "max"
+        return "none"
+
+    def _matching_options(self) -> MatchingOptions:
+        return MatchingOptions(preprocessing=PreprocessingOptions(normalize=self._normalization_mode()))
+
+    def _display_trace_xy(self, trace) -> tuple[list[float], list[float]]:
+        if self._normalization_mode() == "none":
+            return list(trace.x), list(trace.y)
+        processed = preprocess_spectrum(trace, PreprocessingOptions(normalize=self._normalization_mode()))
+        return list(processed.x), list(processed.y)
+
+    def _on_normalization_changed(self, _checked: bool) -> None:
+        if self.active_spectrum is not None and self.results:
+            current_row = self.candidate_table.currentRow()
+            candidates = [result.candidate for result in self.results]
+            self.results = rank_candidates(self.active_spectrum, candidates, self._matching_options())
+            self.candidate_table.set_results(self.results)
+            row = current_row if 0 <= current_row < len(self.results) else 0
+            if self.results:
+                self.candidate_table.setCurrentCell(row, 0)
+                self._preview_result(self.results[row])
+            self._update_profile_view_context()
+            return
+        self._redraw_plot()
+        if self._current_preview_reference is not None and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            x, y = self._display_trace_xy(self._current_preview_reference)
+            self.match_plot.plot(
+                x,
+                y,
+                pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
+                name=self._current_preview_reference.name,
+            )
+
     def _reset_plot_view(self) -> None:
-        self.match_plot.enableAutoRange()
+        self._set_plot_range_for_traces(self._experimental_range_traces())
+
+    def _show_full_plot_range(self) -> None:
+        traces = self._experimental_range_traces()
+        if self._current_preview_reference is not None and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            traces.append(self._current_preview_reference)
+        self._set_plot_range_for_traces(traces)
+
+    def _experimental_range_traces(self) -> list[ObservedSpectrum]:
+        traces = [*self.raman_spectra, *self.ftir_spectra]
+        if traces:
+            return traces
+        return [self.active_spectrum] if self.active_spectrum is not None else []
+
+    def _set_plot_range_for_traces(self, traces: list) -> None:
+        valid_x: list[float] = []
+        valid_y: list[float] = []
+        for trace in traces:
+            x_values, y_values = self._display_trace_xy(trace)
+            x_array = np.asarray(x_values, dtype=float)
+            y_array = np.asarray(y_values, dtype=float)
+            mask = np.isfinite(x_array) & np.isfinite(y_array)
+            if not np.any(mask):
+                continue
+            valid_x.extend(x_array[mask].tolist())
+            valid_y.extend(y_array[mask].tolist())
+        if not valid_x or not valid_y:
+            self.match_plot.enableAutoRange()
+            return
+        x_min = float(min(valid_x))
+        x_max = float(max(valid_x))
+        y_min = float(min(valid_y))
+        y_max = float(max(valid_y))
+        if x_min == x_max:
+            x_min -= 1.0
+            x_max += 1.0
+        if y_min == y_max:
+            y_min -= 0.5
+            y_max += 0.5
+        x_pad = (x_max - x_min) * 0.02
+        y_pad = (y_max - y_min) * 0.08
+        self.match_plot.setXRange(x_min - x_pad, x_max + x_pad, padding=0.0)
+        self.match_plot.setYRange(y_min - y_pad, y_max + y_pad, padding=0.0)
+
 
     def _update_cursor_readout(self, position) -> None:
         if self.match_plot.sceneBoundingRect().contains(position):

@@ -18,7 +18,11 @@ class VibrationalViewBox(pg.ViewBox):
         event.accept()
 
     def mouseDoubleClickEvent(self, event) -> None:
-        self.autoRange(padding=0.02)
+        reset_callback = getattr(self, "double_click_reset_callback", None)
+        if callable(reset_callback):
+            reset_callback()
+        else:
+            self.autoRange(padding=0.02)
         event.accept()
 
 

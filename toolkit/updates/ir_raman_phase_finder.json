@@ -1,28 +1,28 @@
 {
   "app_id": "ir_raman_phase_finder",
   "name": "IR/Raman Phase Finder",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "channel": "stable",
   "minimum_windows": "10.0",
   "published_at": "2026-07-10",
-  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.1",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.3",
   "assets": [
     {
-      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
+      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
       "type": "installer",
       "platform": "windows-x64",
-      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
-      "sha256": "77157d433c8d978048af984e72a94d71ef4eddaf0278c28a2b9d1c51de3b47ba",
-      "size_bytes": 3845212
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
+      "sha256": "10b5458d66f27ffb610299d30f5bd31145ecf6f1db87e77fb0338f3da923bfbc",
+      "size_bytes": 3847333
     }
   ],
   "summary": [
-    "Add Finder-style plot navigation: rectangle zoom, X-axis wheel zoom and double-click full-range reset.",
-    "Add an expanded plot context menu with export, full-range and layer visibility controls.",
-    "Fix the Windows desktop shortcut name so it is created directly on the Desktop.",
-    "Use the shared Sci runtime and AppData layout for clean installation.",
-    "Reduce Windows Defender false-positive risk by removing the VBS launcher and ExecutionPolicy Bypass usage."
+    "Normalize observed and reference intensities consistently for display and matching.",
+    "Add laser wavelength filtering with 532 nm as the default and 0 for all lasers.",
+    "Persist window layout, splitters, column widths and key user options.",
+    "Add drag-and-drop import for spectra and reference folders.",
+    "Reset plot view to the full experimental range across all loaded experiments; Show full also includes the current reference preview."
   ],
-  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe",
-  "installer_sha256": "77157d433c8d978048af984e72a94d71ef4eddaf0278c28a2b9d1c51de3b47ba"
+  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
+  "installer_sha256": "10b5458d66f27ffb610299d30f5bd31145ecf6f1db87e77fb0338f3da923bfbc"
 }

@@ -7,13 +7,13 @@
 
 # Download IR/Raman Phase Finder
 
-**Windows 10/11:** [Download `IR_Raman_analysis_Toolkit_Setup_0.1.1.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe) and run the installer.
+**Windows 10/11:** [Download `IR_Raman_analysis_Toolkit_Setup_0.1.3.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe) and run the installer.
 
 **All releases:** [GitHub Releases](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases)
 
 More detailed installation notes are below in [Installation](#installation).
 
-# IR/Raman Phase Finder 0.1.1
+# IR/Raman Phase Finder 0.1.3
 
 Preview release focused on bringing the XRD Phase Finder workflow to Raman and FTIR
 search-match work, with a shared Sci runtime, startup preview, downloadable source
@@ -108,7 +108,7 @@ Select likely matches and inspect unexplained bands
 
 Latest release assets:
 
-- Windows 10/11: [`IR_Raman_analysis_Toolkit_Setup_0.1.1.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.1/IR_Raman_analysis_Toolkit_Setup_0.1.1.exe)
+- Windows 10/11: [`IR_Raman_analysis_Toolkit_Setup_0.1.3.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe)
 - All releases: [GitHub Releases](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases)
 
 ## Requirements
@@ -149,7 +149,7 @@ Logs are stored under:
 Download and run:
 
 ```text
-IR_Raman_analysis_Toolkit_Setup_0.1.1.exe
+IR_Raman_analysis_Toolkit_Setup_0.1.3.exe
 ```
 
 The installer:
@@ -276,7 +276,7 @@ IR_Raman_analysis_Toolkit/
         Import, matching and source-cache tests
 ```
 
-Generated installer files such as `IR_Raman_analysis_Toolkit_Setup_0.1.1.exe` are
+Generated installer files such as `IR_Raman_analysis_Toolkit_Setup_0.1.3.exe` are
 **not committed to the repository**; they are published separately as GitHub Releases
 assets.
 
@@ -313,7 +313,7 @@ full quantitative spectroscopic refinement workflows.
 
 # Current Status
 
-Current development stage: **0.1.1 public preview**.
+Current development stage: **0.1.3 public preview**.
 
 The application is ready for practical source loading, reference search, candidate
 preview and selected-match workflows on Windows. Next development work is focused on
