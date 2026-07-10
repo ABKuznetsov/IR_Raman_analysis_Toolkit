@@ -3,6 +3,7 @@
 #define MyAppPublisher "ABKuznetsov"
 #define MyAppURL ""
 #define MyAppExeName "launch_ir_raman_phase_finder_silent.vbs"
+#define MyShortcutName "IR Raman Phase Finder"
 
 [Setup]
 AppId={{A8C3F5AA-B8B3-49C8-B23C-15AB1B7A8A21}
@@ -43,10 +44,10 @@ Name: "setupenv"; Description: "Prepare shared Sci Python environment after inst
 Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "installer\*,.git\*,.agents\*,.codex\*,.venv\*,__pycache__\*,*.pyc,*.pyo,.DS_Store,.ruff_cache\*,.pytest_cache\*,build\*,dist\*,logs\*,.cache\*,*.egg-info\*"
 
 [Icons]
-Name: "{group}\IR/Raman Phase Finder"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
+Name: "{group}\{#MyShortcutName}"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
 Name: "{group}\Setup Sci Environment"; Filename: "{app}\toolkit\setup_sci_env.bat"; WorkingDir: "{app}"
-Name: "{group}\Uninstall IR/Raman Phase Finder"; Filename: "{uninstallexe}"; IconFilename: "{uninstallexe}"
-Name: "{autodesktop}\IR/Raman Phase Finder"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
+Name: "{group}\Uninstall {#MyShortcutName}"; Filename: "{uninstallexe}"; IconFilename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyShortcutName}"; Filename: "{win}\System32\wscript.exe"; Parameters: """{app}\launch_ir_raman_phase_finder_silent.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\toolkit\setup_sci_env.bat"; Description: "Prepare Sci environment"; Flags: postinstall runascurrentuser skipifsilent; Tasks: setupenv
