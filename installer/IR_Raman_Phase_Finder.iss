@@ -1,5 +1,5 @@
 #define MyAppName "IR/Raman Phase Finder"
-#define MyAppVersion "0.1.3"
+#define MyAppVersion "0.1.4"
 #define MyAppPublisher "ABKuznetsov"
 #define MyAppURL ""
 #define MyShortcutName "IR Raman Phase Finder"

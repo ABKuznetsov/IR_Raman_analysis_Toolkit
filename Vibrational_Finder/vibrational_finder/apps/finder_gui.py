@@ -384,6 +384,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.legend_item = None
         self.cursor_position_line = None
         self._auto_line_colors = True
+        self._default_splitter_handle_width = 4
         self.setStyleSheet(_window_style(self.current_theme))
 
         self.active_spectrum: ObservedSpectrum | None = None
@@ -507,6 +508,13 @@ class VibrationalFinderWindow(QMainWindow):
     def _create_right_tabs(self) -> None:
         self.right_tabs = QTabWidget()
         self.right_tabs.setMinimumWidth(460)
+        self.pin_panels_button = QToolButton()
+        self.pin_panels_button.setText("Pin")
+        self.pin_panels_button.setCheckable(True)
+        self.pin_panels_button.setAutoRaise(False)
+        self.pin_panels_button.setToolTip("Lock panel positions and splitter handles.")
+        self.pin_panels_button.toggled.connect(self._set_panels_pinned)
+        self.right_tabs.setCornerWidget(self.pin_panels_button, Qt.Corner.TopRightCorner)
         self.right_tabs.addTab(self._elements_tab(), "Elements")
         self.right_tabs.addTab(self._compound_card_tab(), "Card")
         self.right_tabs.addTab(self._database_tab(), "Databases")
@@ -1161,9 +1169,9 @@ class VibrationalFinderWindow(QMainWindow):
             self._load_experiment_path(path, self._kind_from_path(Path(path)))
 
     def _import_experiment(self, kind: SignalKind) -> None:
-        title = "Import Raman spectrum" if kind == SignalKind.RAMAN else "Import FTIR spectrum"
-        path, _ = QFileDialog.getOpenFileName(self, title, "", SPECTRUM_FILE_FILTER)
-        if path:
+        title = "Import Raman spectra" if kind == SignalKind.RAMAN else "Import FTIR spectra"
+        paths, _ = QFileDialog.getOpenFileNames(self, title, "", SPECTRUM_FILE_FILTER)
+        for path in paths:
             self._load_experiment_path(path, kind)
 
     def _load_experiment_path(self, path: str, kind: SignalKind) -> None:
@@ -2235,6 +2243,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.settings.setValue("controls/display_mode", self.action_bar.display_mode.currentText())
         self.settings.setValue("controls/normalize", self.action_bar.normalize_checkbox.isChecked())
         self.settings.setValue("controls/laser_nm", self.action_bar.laser_wavelength_spin.value())
+        self.settings.setValue("controls/panels_pinned", self.pin_panels_button.isChecked())
         self.settings.setValue("controls/include_raman", self.include_raman_checkbox.isChecked())
         self.settings.setValue("controls/include_ftir", self.include_ftir_checkbox.isChecked())
         self.settings.setValue("theme/preference", self.theme_preference)
@@ -2245,6 +2254,27 @@ class VibrationalFinderWindow(QMainWindow):
         self._save_header_state("headers/databases", self.database_table)
         self._save_header_state("headers/bands", self.band_table)
         self.settings.sync()
+
+    def _splitters(self) -> list[QSplitter]:
+        splitters = [self.main_splitter, self.center_splitter]
+        if hasattr(self, "elements_splitter"):
+            splitters.append(self.elements_splitter)
+        return splitters
+
+    def _set_panels_pinned(self, pinned: bool) -> None:
+        handle_width = 0 if pinned else self._default_splitter_handle_width
+        for splitter in self._splitters():
+            splitter.setHandleWidth(handle_width)
+            for index in range(splitter.count()):
+                splitter.setCollapsible(index, False)
+        if hasattr(self, "pin_panels_button"):
+            self.pin_panels_button.setText("Pinned" if pinned else "Pin")
+        self.settings.setValue("controls/panels_pinned", bool(pinned))
+        self.settings.sync()
+        self.statusBar().showMessage(
+            "Panel positions are locked." if pinned else "Panel positions are unlocked.",
+            5000,
+        )
 
     def _restore_ui_state(self) -> None:
         geometry = self.settings.value("window/geometry")
@@ -2262,6 +2292,7 @@ class VibrationalFinderWindow(QMainWindow):
         elements_state = self.settings.value("splitters/elements")
         if elements_state and hasattr(self, "elements_splitter"):
             self.elements_splitter.restoreState(elements_state)
+        self.pin_panels_button.setChecked(self._settings_bool("controls/panels_pinned", False))
         right_index = int(self.settings.value("tabs/right_index", self.right_tabs.currentIndex()) or 0)
         if 0 <= right_index < self.right_tabs.count():
             self.right_tabs.setCurrentIndex(right_index)

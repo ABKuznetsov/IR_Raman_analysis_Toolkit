@@ -1,28 +1,28 @@
 {
   "app_id": "ir_raman_phase_finder",
   "name": "IR/Raman Phase Finder",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "channel": "stable",
   "minimum_windows": "10.0",
   "published_at": "2026-07-10",
-  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.3",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.4",
   "assets": [
     {
-      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
+      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
       "type": "installer",
       "platform": "windows-x64",
-      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
-      "sha256": "10b5458d66f27ffb610299d30f5bd31145ecf6f1db87e77fb0338f3da923bfbc",
-      "size_bytes": 3847333
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
+      "sha256": "5258e61f11565b761412005c9a38bb412ae27158e0e968f2a2709381edc90c95",
+      "size_bytes": 3847936
     }
   ],
   "summary": [
-    "Normalize observed and reference intensities consistently for display and matching.",
-    "Add laser wavelength filtering with 532 nm as the default and 0 for all lasers.",
-    "Persist window layout, splitters, column widths and key user options.",
-    "Add drag-and-drop import for spectra and reference folders.",
-    "Reset plot view to the full experimental range across all loaded experiments; Show full also includes the current reference preview."
+    "Add an XRD-style Pin control in the right tab corner that locks panel splitter movement.",
+    "Allow importing multiple Raman or FTIR experiment files in one action.",
+    "Normalize aligned reference previews with the same data used for matching.",
+    "Keep double-click and Reset view focused on experimental spectra only.",
+    "Preserve the existing layout, laser, drag-and-drop and element gate workflows."
   ],
-  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.3/IR_Raman_analysis_Toolkit_Setup_0.1.3.exe",
-  "installer_sha256": "10b5458d66f27ffb610299d30f5bd31145ecf6f1db87e77fb0338f3da923bfbc"
+  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
+  "installer_sha256": "5258e61f11565b761412005c9a38bb412ae27158e0e968f2a2709381edc90c95"
 }

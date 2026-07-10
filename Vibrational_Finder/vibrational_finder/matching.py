@@ -117,8 +117,8 @@ def score_candidate(
     score.total_features = len(observed_bands)
     score.x_shift = shift
     aligned = ReferenceSpectrum(
-        x=(np.asarray(candidate.reference.x, dtype=float) + shift).tolist(),
-        y=list(candidate.reference.y),
+        x=(np.asarray(reference_processed.x, dtype=float) + shift).tolist(),
+        y=list(reference_processed.y),
         kind=candidate.reference.kind,
         name=candidate.reference.name,
         source_path=candidate.reference.source_path,
