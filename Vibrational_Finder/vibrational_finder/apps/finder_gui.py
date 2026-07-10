@@ -13,7 +13,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -60,6 +60,7 @@ from vibrational_finder.services.public_sources import external_source_by_key, e
 from vibrational_finder.ui import PeriodicTableWidget, element_sort_key
 from vibrational_finder.ui.background_task import BackgroundTaskHandle
 from vibrational_finder.ui.plot_view_settings import PlotViewSettings, PlotViewSettingsWidget
+from vibrational_finder.ui.vibrational_plot import create_vibrational_plot_widget
 
 
 SPECTRUM_FILE_FILTER = (
@@ -368,6 +369,7 @@ class VibrationalFinderWindow(QMainWindow):
         self.plot_settings_panel: PlotViewSettingsWidget | None = None
         self.plot_view_settings = PlotViewSettings()
         self.legend_item = None
+        self.cursor_position_line = None
         self._auto_line_colors = True
         self.setStyleSheet(_window_style(self.current_theme))
 
@@ -450,16 +452,9 @@ class VibrationalFinderWindow(QMainWindow):
         self.action_bar.reset_view_button.clicked.connect(self._reset_plot_view)
         self.center_layout.addWidget(self.action_bar)
 
-        self.match_plot = pg.PlotWidget()
+        self.match_plot = create_vibrational_plot_widget()
         self.match_plot.setMinimumSize(1, 1)
         self.match_plot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.match_plot.setBackground("w")
-        self.match_plot.showGrid(x=False, y=False)
-        self.match_plot.setTitle("IR/Raman Phase Finder: spectrum and candidate markers", color="#111111", size="13pt")
-        self.match_plot.setLabel("bottom", "Wavenumber", units="cm-1", color="#111111", **{"font-size": "12pt"})
-        self.match_plot.setLabel("left", "Intensity", units="a.u.", color="#111111", **{"font-size": "12pt"})
-        self.match_plot.getAxis("bottom").enableAutoSIPrefix(False)
-        self.match_plot.getAxis("left").enableAutoSIPrefix(False)
         self.match_plot.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.match_plot.customContextMenuRequested.connect(self._show_plot_context_menu)
         self.match_plot.scene().sigMouseMoved.connect(self._update_cursor_readout)
@@ -847,6 +842,7 @@ class VibrationalFinderWindow(QMainWindow):
             alpha=max(0.0, min(float(settings.grid_alpha), 1.0)) if settings.grid_visible else 0.0,
         )
         self._set_legend_visible(settings.legend_visible)
+        self._set_cursor_vertical_line_enabled(settings.cursor_vertical_line_visible)
         self._apply_plot_view_aspect()
         self._redraw_plot()
 
@@ -882,6 +878,26 @@ class VibrationalFinderWindow(QMainWindow):
             return
         if self.legend_item is not None:
             self.legend_item.setVisible(False)
+
+    def _ensure_cursor_position_items(self) -> None:
+        if self.cursor_position_line is None:
+            pen = pg.mkPen("#5f6368", width=1.2, style=Qt.PenStyle.SolidLine)
+            self.cursor_position_line = pg.InfiniteLine(angle=90, movable=False, pen=pen)
+            self.cursor_position_line.setZValue(5000)
+            self.cursor_position_line.setVisible(False)
+        try:
+            if self.cursor_position_line.scene() is None:
+                self.match_plot.addItem(self.cursor_position_line, ignoreBounds=True)
+        except RuntimeError:
+            try:
+                self.match_plot.addItem(self.cursor_position_line, ignoreBounds=True)
+            except Exception:
+                pass
+
+    def _set_cursor_vertical_line_enabled(self, visible: bool) -> None:
+        self._ensure_cursor_position_items()
+        if self.cursor_position_line is not None:
+            self.cursor_position_line.setVisible(bool(visible))
 
     def _update_profile_view_context(self) -> None:
         panel = getattr(self, "plot_settings_panel", None)
@@ -1472,6 +1488,7 @@ class VibrationalFinderWindow(QMainWindow):
 
     def _redraw_plot(self) -> None:
         self.match_plot.clear()
+        self._ensure_cursor_position_items()
         if self.legend_item is not None:
             self.legend_item = None
             self._set_legend_visible(bool(getattr(self.plot_view_settings, "legend_visible", True)))
@@ -1487,8 +1504,39 @@ class VibrationalFinderWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction("Export image...", self._export_plot_image)
         menu.addSeparator()
-        menu.addAction("Reset view", self._reset_plot_view)
+        menu.addAction("Show full spectrum", self._reset_plot_view)
+        menu.addSeparator()
+        menu.addAction(self._plot_setting_action("Grid", "grid_visible"))
+        menu.addAction(self._plot_setting_action("Legend", "legend_visible"))
+        menu.addAction(self._plot_setting_action("Cursor vertical line", "cursor_vertical_line_visible"))
+        menu.addSeparator()
+        menu.addAction(self._plot_setting_action("Observed spectrum", "layer_observed_visible"))
+        menu.addAction(self._plot_setting_action("Reference preview", "layer_preview_peak_positions_visible"))
+        menu.addAction(self._plot_setting_action("Processed spectrum", "layer_total_profile_visible"))
+        menu.addAction(self._plot_setting_action("Reference components", "layer_phase_profiles_visible"))
+        menu.addAction(self._plot_setting_action("Background", "layer_background_visible"))
+        menu.addAction(self._plot_setting_action("Band tick marks", "layer_phase_ticks_visible"))
+        menu.addAction(self._plot_setting_action("Assignment markers", "layer_coverage_markers_visible"))
+        menu.addAction(self._plot_setting_action("Band labels", "layer_peak_labels_visible"))
+        menu.addAction(self._plot_setting_action("Unassigned bands", "layer_unknown_peaks_visible"))
         menu.exec(self.match_plot.mapToGlobal(point))
+
+    def _plot_setting_action(self, label: str, field: str):
+        action = QAction(label, self)
+        action.setCheckable(True)
+        action.setChecked(bool(getattr(self.plot_view_settings, field, False)))
+        action.toggled.connect(lambda visible, setting=field: self._set_plot_view_setting(setting, visible))
+        return action
+
+    def _set_plot_view_setting(self, field: str, value: bool) -> None:
+        self.plot_view_settings = replace(self.plot_view_settings, **{field: bool(value)})
+        panel = getattr(self, "plot_settings_panel", None)
+        if panel is not None and hasattr(panel, "_apply_settings"):
+            blocked = panel.blockSignals(True)
+            panel._apply_settings(self.plot_view_settings)
+            panel.blockSignals(blocked)
+            self.plot_view_settings = panel.settings()
+        self._apply_plot_view_settings(self.plot_view_settings)
 
     def _export_plot_image(self) -> None:
         path, _selected_filter = QFileDialog.getSaveFileName(
@@ -2038,6 +2086,9 @@ class VibrationalFinderWindow(QMainWindow):
     def _update_cursor_readout(self, position) -> None:
         if self.match_plot.sceneBoundingRect().contains(position):
             point = self.match_plot.plotItem.vb.mapSceneToView(position)
+            if self.cursor_position_line is not None:
+                self.cursor_position_line.setPos(point.x())
+                self.cursor_position_line.setVisible(bool(getattr(self.plot_view_settings, "cursor_vertical_line_visible", False)))
             self.cursor_label.setText(f"cm-1: {point.x():.2f}    I: {point.y():.2f}")
 
 
