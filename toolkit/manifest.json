@@ -1,0 +1,19 @@
+{
+  "toolkit_version": "1.0.0",
+  "manifest_version": 1,
+  "repository": "",
+  "apps": {
+    "ir_raman_phase_finder": {
+      "name": "IR/Raman Phase Finder",
+      "version": "0.1.0",
+      "entry_module": "vibrational_finder.apps.finder_gui",
+      "folder": "Vibrational_Finder",
+      "requirements": "pyproject.toml",
+      "release_url": "",
+      "manifest_url": "",
+      "update_manifest_url": "",
+      "installer_url": "",
+      "installer_sha256": ""
+    }
+  }
+}

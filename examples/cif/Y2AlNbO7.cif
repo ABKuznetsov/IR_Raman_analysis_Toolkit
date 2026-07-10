@@ -1,0 +1,9 @@
+data_Y2AlNbO7
+_chemical_name_common 'Y2AlNbO7'
+_chemical_formula_sum 'Y2 Al Nb O7'
+_cell_length_a 10.30
+_cell_length_b 10.30
+_cell_length_c 10.30
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90

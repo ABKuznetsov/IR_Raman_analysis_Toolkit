@@ -1,0 +1,43 @@
+[project]
+name = "ir-raman-phase-finder"
+version = "0.1.0"
+description = "IR/Raman Phase Finder search-match toolkit built on a shared Finder architecture."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pybaselines",
+    "pyqtgraph",
+    "PySide6==6.7.3",
+    "certifi",
+    "pyreadr",
+    "rdata",
+]
+
+[project.scripts]
+ir-raman-phase-finder = "vibrational_finder.apps.finder_cli:main"
+ir-raman-phase-finder-gui = "vibrational_finder.apps.finder_gui:main"
+raman-finder = "vibrational_finder.apps.raman_cli:main"
+ftir-finder = "vibrational_finder.apps.ftir_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "Vibrational_Finder"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["Vibrational_Finder"]
+
+[tool.ruff]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "build",
+    "dist",
+]

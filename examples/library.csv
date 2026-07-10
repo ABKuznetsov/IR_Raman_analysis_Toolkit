@@ -1,0 +1,5 @@
+source,entry_id,name,formula,kind,path,compound_key,mineral,space_group
+User,quartz_demo,Quartz,SiO2,raman,quartz_raman.xy,User:quartz_demo,Quartz,P3121
+User,quartz_demo,Quartz,SiO2,ftir,quartz_ftir.xy,User:quartz_demo,Quartz,P3121
+User,calcite_demo,Calcite,CaCO3,raman,calcite_raman.xy,User:calcite_demo,Calcite,R-3c
+User,calcite_demo,Calcite,CaCO3,ftir,calcite_ftir.xy,User:calcite_demo,Calcite,R-3c
