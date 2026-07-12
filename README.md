@@ -7,13 +7,13 @@
 
 # Download IR/Raman Phase Finder
 
-**Windows 10/11:** [Download `IR_Raman_analysis_Toolkit_Setup_0.1.4.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe) and run the installer.
+**Windows 10/11:** [Download `IR_Raman_analysis_Toolkit_Setup_0.1.5.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.5/IR_Raman_analysis_Toolkit_Setup_0.1.5.exe) and run the installer.
 
 **All releases:** [GitHub Releases](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases)
 
 More detailed installation notes are below in [Installation](#installation).
 
-# IR/Raman Phase Finder 0.1.4
+# IR/Raman Phase Finder 0.1.5
 
 Preview release focused on bringing the XRD Phase Finder workflow to Raman and FTIR
 search-match work, with a shared Sci runtime, startup preview, downloadable source
@@ -33,21 +33,24 @@ domain engine is vibrational spectroscopy rather than diffraction.
 
 ## What It Can Do
 
-- import Raman and FTIR spectra from common text, CSV and JCAMP-DX style files
+- import Raman and FTIR spectra from text, CSV, JCAMP-DX and common vendor files
 - load user spectral libraries from CSV manifests or folders
 - search Raman and FTIR references separately against the active experiment
 - use required, optional and excluded elements to gate candidate compounds
-- download/cache supported public source data such as RRUFF and OpenSpecy
+- download/cache supported public source data such as RRUFF, ROD, OpenSpecy and JARVIS-DFT
+- preview and tune smoothing, despiking and baseline removal in XRD-style parameter panels
+- normalize spectra by maximum, vector norm, integrated area or SNV
+- export the active processed spectrum, candidate table and plot image
 - preview reference spectra on the active plot before selecting them
 - manage project trees with experiments, libraries, candidates and selected matches
 - save user data, caches, settings and matplotlib state outside the installed program
 
 ## Data Sources
 
-See [Data Sources](docs/DATA_SOURCES.md). The source interface is ready for RRUFF,
-OpenSpecy, SDBS, SpectraBase, NIST and local user libraries. RRUFF and OpenSpecy have
-downloadable connectors in this preview build; other sources are staged so licensing,
-caching and redistribution rules can be handled per source.
+See [Data Sources](docs/DATA_SOURCES.md). Searchable local connectors are provided for
+user libraries, RRUFF, ROD, OpenSpecy and JARVIS-DFT. SDBS, NIST Chemistry WebBook and
+SpectraBase are shown separately as external search links; they are not presented as
+downloadable Finder databases.
 
 Large third-party spectral databases are not bundled with the application. The
 program provides tools for reading, indexing and caching data that the user is allowed
@@ -65,7 +68,7 @@ Preprocess and detect bands
         |
         |
 Choose active reference sources
-(RRUFF / OpenSpecy / local folder / CSV library / DFT spectra)
+(RRUFF / ROD / OpenSpecy / JARVIS-DFT / local folder / CSV library / DFT spectra)
         |
         |
 Restrict chemistry with the element table
@@ -99,6 +102,9 @@ Select likely matches and inspect unexplained bands
 - **Plot**
   - Use normal mouse zoom and pan.
   - View settings are kept in the same style as the XRD Finder View tab.
+- **Preprocessing**
+  - Smooth, Remove background and Despike open parameter panels with live preview.
+  - Auto restores conservative defaults, Cancel restores the captured spectrum, and OK applies the preview.
 
 ---
 
@@ -108,7 +114,7 @@ Select likely matches and inspect unexplained bands
 
 Latest release assets:
 
-- Windows 10/11: [`IR_Raman_analysis_Toolkit_Setup_0.1.4.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe)
+- Windows 10/11: [`IR_Raman_analysis_Toolkit_Setup_0.1.5.exe`](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.5/IR_Raman_analysis_Toolkit_Setup_0.1.5.exe)
 - All releases: [GitHub Releases](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases)
 
 ## Requirements
@@ -149,7 +155,7 @@ Logs are stored under:
 Download and run:
 
 ```text
-IR_Raman_analysis_Toolkit_Setup_0.1.4.exe
+IR_Raman_analysis_Toolkit_Setup_0.1.5.exe
 ```
 
 The installer:
@@ -230,10 +236,10 @@ The GUI can also load a whole folder as a user library. It scans supported spect
 files recursively, infers Raman/FTIR from the path name and extracts simple formulas
 from file names such as `Ca2Al2SiO7.txt` or `CaWO4_2Mo.txt`.
 
-Supported directly: `.txt`, `.xy`, `.csv`, `.tsv`, `.dat`, `.asc`, `.ascii`, `.prn`,
-`.jdx` and `.dx`. Binary vendor formats such as `.spc`, `.spa` and Bruker OPUS
-numbered files are recognized by file dialogs, but this preview build asks for CSV,
-TXT or JCAMP-DX export until a reliable optional binary decoder is installed.
+Supported by the built-in reader: `.txt`, `.xy`, `.csv`, `.tsv`, `.dat`, `.asc`,
+`.ascii`, `.prn`, `.jdx` and `.dx`. The standard setup also installs the optional
+`ramanchada2` backend for `.spc`, `.sp`, `.spa`, Bruker OPUS `.0/.1/.2`, `.wdf`,
+`.ngs`, `.rruf`, `.spe`, `.cha`, `.dpt` and related Raman formats.
 
 ---
 
@@ -276,7 +282,7 @@ IR_Raman_analysis_Toolkit/
         Import, matching and source-cache tests
 ```
 
-Generated installer files such as `IR_Raman_analysis_Toolkit_Setup_0.1.4.exe` are
+Generated installer files such as `IR_Raman_analysis_Toolkit_Setup_0.1.5.exe` are
 **not committed to the repository**; they are published separately as GitHub Releases
 assets.
 
@@ -304,6 +310,7 @@ Core open-source libraries used by the application:
 - [pyqtgraph](https://www.pyqtgraph.org/) for interactive plotting
 - [PySide6 / Qt for Python](https://doc.qt.io/qtforpython-6/) for the desktop interface
 - [pyreadr](https://github.com/ofajardo/pyreadr) and [rdata](https://rdata.readthedocs.io/) for optional RDS library import paths
+- [ramanchada2](https://github.com/h2020charisma/ramanchada2) for vendor formats and Raman data harmonization
 
 The current implementation is intended for **initial phase identification** and
 **visual interpretation** of Raman and IR spectra. It is not intended to replace
@@ -313,7 +320,7 @@ full quantitative spectroscopic refinement workflows.
 
 # Current Status
 
-Current development stage: **0.1.4 public preview**.
+Current development stage: **0.1.5 public preview**.
 
 The application is ready for practical source loading, reference search, candidate
 preview and selected-match workflows on Windows. Next development work is focused on
@@ -331,6 +338,21 @@ MIT License
 # Citation
 
 If you use this software in scientific research, please cite this GitHub repository.
+
+**IR/Raman Phase Finder**  
+Version 1.0
+
+Open-source software for preliminary phase identification from Raman and FTIR
+vibrational spectra using open spectral databases, user reference libraries,
+peak/line indexing, and spectrum matching.
+
+© 2026 Artem B. Kuznetsov  
+Institute of Geology and Mineralogy SB RAS
+
+MIT License
+
+GitHub:  
+https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit
 
 A dedicated software publication describing the Finder workflow for vibrational
 spectroscopy is planned after the preview architecture stabilizes.

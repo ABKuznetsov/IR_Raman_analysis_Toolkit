@@ -17,26 +17,21 @@ class ExternalSourceInfo:
     supports_direct_search: bool = False
 
 
-class PlannedOnlineSource:
-    name = "Planned Source"
+class ExternalSearchSource:
+    name = "External Search"
     homepage = ""
 
     def search(self, query: SourceQuery) -> list[CandidateRecord]:
-        raise NotImplementedError(f"{self.name} connector is planned but not implemented yet.")
+        raise NotImplementedError(f"{self.name} is an external search link, not an automatic Finder source.")
 
     def load_spectrum(self, candidate: CandidateRecord) -> SignalTrace:
-        raise NotImplementedError(f"{self.name} connector is planned but not implemented yet.")
+        raise NotImplementedError(f"{self.name} spectra must be downloaded manually and imported.")
 
     def search_url(self, query: SourceQuery) -> str:
         return self.homepage
 
 
-class RruffSource(PlannedOnlineSource):
-    name = "RRUFF"
-    homepage = "https://rruff.info"
-
-
-class SdbsSource(PlannedOnlineSource):
+class SdbsSource(ExternalSearchSource):
     name = "SDBS"
     homepage = "https://sdbs.db.aist.go.jp"
 
@@ -44,12 +39,7 @@ class SdbsSource(PlannedOnlineSource):
         return self.homepage
 
 
-class OpenSpecySource(PlannedOnlineSource):
-    name = "OpenSpecy"
-    homepage = "https://www.openspecy.org"
-
-
-class SpectraBaseSource(PlannedOnlineSource):
+class SpectraBaseSource(ExternalSearchSource):
     name = "SpectraBase"
     homepage = "https://spectrabase.com"
 
@@ -58,7 +48,7 @@ class SpectraBaseSource(PlannedOnlineSource):
         return f"https://spectrabase.com/search?query={quote_plus(text)}" if text else self.homepage
 
 
-class NistWebBookSource(PlannedOnlineSource):
+class NistWebBookSource(ExternalSearchSource):
     name = "NIST Chemistry WebBook"
     homepage = "https://webbook.nist.gov/chemistry"
 
@@ -70,32 +60,6 @@ class NistWebBookSource(PlannedOnlineSource):
         return f"https://webbook.nist.gov/cgi/cbook.cgi?{parameter}={quote_plus(text)}&Units=SI"
 
 
-class JarvisDftSource(PlannedOnlineSource):
-    name = "JARVIS-DFT"
-    homepage = "https://jarvis.nist.gov/"
-
-    def search_url(self, query: SourceQuery) -> str:
-        return "https://jarvis.nist.gov/jarvisdft/"
-
-
-class MaterialsProjectPhononSource(PlannedOnlineSource):
-    name = "Materials Project phonons"
-    homepage = "https://materialsproject.org/"
-
-
-class PhononDbSource(PlannedOnlineSource):
-    name = "PhononDB"
-    homepage = "https://phonondb.mtl.kyoto-u.ac.jp/"
-
-
-class NomadSource(PlannedOnlineSource):
-    name = "NOMAD"
-    homepage = "https://nomad-lab.eu/"
-
-    def search_url(self, query: SourceQuery) -> str:
-        return "https://nomad-lab.eu/prod/v1/gui/search/entries"
-
-
 def external_source_catalog() -> dict[str, ExternalSourceInfo]:
     return {
         "SDBS": ExternalSourceInfo(
@@ -103,21 +67,14 @@ def external_source_catalog() -> dict[str, ExternalSourceInfo]:
             name="SDBS",
             homepage=SdbsSource.homepage,
             status="External",
-            details="Synthetic organic chemicals; Raman and FTIR web search.",
-        ),
-        "OpenSpecy": ExternalSourceInfo(
-            key="OpenSpecy",
-            name="OpenSpecy",
-            homepage=OpenSpecySource.homepage,
-            status="External",
-            details="Open FTIR/Raman workflow for polymers, plastics and environmental spectra.",
+            details="Manual Raman/FTIR web search; AIST does not provide a digital bulk library.",
         ),
         "SpectraBase": ExternalSourceInfo(
             key="SpectraBase",
             name="SpectraBase",
             homepage=SpectraBaseSource.homepage,
             status="External",
-            details="Wiley spectral database; public/subscription access.",
+            details="Manual public/subscription search; no redistributable bulk connector.",
             supports_direct_search=True,
         ),
         "NIST": ExternalSourceInfo(
@@ -125,50 +82,17 @@ def external_source_catalog() -> dict[str, ExternalSourceInfo]:
             name="NIST",
             homepage=NistWebBookSource.homepage,
             status="External",
-            details="Chemistry WebBook IR/vibrational data; access rules apply.",
+            details="Manual per-compound IR search with JCAMP-DX download; no bulk connector.",
             supports_direct_search=True,
-        ),
-        "JARVIS-DFT": ExternalSourceInfo(
-            key="JARVIS-DFT",
-            name="JARVIS-DFT",
-            homepage=JarvisDftSource.homepage,
-            status="External",
-            details="Computed inorganic materials; infrared intensities and phonon-related properties.",
-        ),
-        "Materials Project": ExternalSourceInfo(
-            key="Materials Project",
-            name="Materials Project",
-            homepage=MaterialsProjectPhononSource.homepage,
-            status="External",
-            details="Computed material entries; future phonon/structure bridge.",
-        ),
-        "PhononDB": ExternalSourceInfo(
-            key="PhononDB",
-            name="PhononDB",
-            homepage=PhononDbSource.homepage,
-            status="External",
-            details="Computed phonon database for inorganic crystals.",
-        ),
-        "NOMAD": ExternalSourceInfo(
-            key="NOMAD",
-            name="NOMAD",
-            homepage=NomadSource.homepage,
-            status="External",
-            details="Materials science repository with APIs and uploaded datasets.",
         ),
     }
 
 
-def external_source_by_key(key: str) -> PlannedOnlineSource:
-    sources: dict[str, PlannedOnlineSource] = {
+def external_source_by_key(key: str) -> ExternalSearchSource:
+    sources: dict[str, ExternalSearchSource] = {
         "SDBS": SdbsSource(),
-        "OpenSpecy": OpenSpecySource(),
         "SpectraBase": SpectraBaseSource(),
         "NIST": NistWebBookSource(),
-        "JARVIS-DFT": JarvisDftSource(),
-        "Materials Project": MaterialsProjectPhononSource(),
-        "PhononDB": PhononDbSource(),
-        "NOMAD": NomadSource(),
     }
     if key not in sources:
         raise KeyError(key)

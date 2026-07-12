@@ -11,18 +11,35 @@ class ObservedSpectrum(SignalTrace):
 
 
 @dataclass(slots=True)
-class ReferenceSpectrum(SignalTrace):
-    record: CandidateRecord | None = None
+class SpectralBand(SignalFeature):
+    prominence: float = 0.0
+    mode: str = ""
+    assignment: str = ""
+    symmetry: str = ""
+    polarization: str = ""
+    orientation: str = ""
+    source_comment: str = ""
+    confidence: float = 1.0
 
 
 @dataclass(slots=True)
-class SpectralBand(SignalFeature):
-    pass
+class ReferenceBandSet:
+    bands: list[SpectralBand] = field(default_factory=list)
+    origin: str = "experimental"
+    extraction_method: str = "scipy"
+    processing_recipe: dict[str, str | float | int | bool] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ReferenceSpectrum(SignalTrace):
+    record: CandidateRecord | None = None
+    band_set: ReferenceBandSet | None = None
 
 
 @dataclass(slots=True)
 class CompoundCandidate(CandidateRecord):
     reference: ReferenceSpectrum | None = None
+    band_set: ReferenceBandSet | None = None
 
 
 @dataclass(slots=True)

@@ -7,10 +7,11 @@ import ssl
 import urllib.request
 
 from finder_core.cache import app_cache_dir
-from finder_core.chemistry import formula_contains_elements
 from finder_core.data_sources import SourceQuery
 from finder_core.models import CandidateRecord, SignalKind
-from vibrational_finder.models import CompoundCandidate, ReferenceSpectrum
+from vibrational_finder.band_detection import BandDetectionOptions, detect_bands, extract_reference_band_set
+from vibrational_finder.models import CompoundCandidate, ReferenceBandSet, ReferenceSpectrum, SpectralBand
+from vibrational_finder.services.reference_cache import ReferenceSpectrumCache
 
 
 OPENSPECY_LIBRARIES = {
@@ -22,6 +23,7 @@ OPENSPECY_LIBRARIES = {
     "model_derivative": ("https://osf.io/download/s5bmh/", "model_derivative.rds"),
     "model_nobaseline": ("https://osf.io/download/v4abf/", "model_nobaseline.rds"),
 }
+OPENSPECY_BAND_RECIPE_VERSION = "arpls-savgol-ramanchada2-topo-normalized-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +48,7 @@ class OpenSpecyLibrarySource:
     def __init__(self, cache_root: str | Path | None = None) -> None:
         self.cache_root = Path(cache_root) if cache_root is not None else app_cache_dir() / "openspecy"
         self.cache_root.mkdir(parents=True, exist_ok=True)
+        self.reference_cache = ReferenceSpectrumCache(self.cache_root)
         self._records: list[CandidateRecord] = []
         self._decoder_error = ""
         self._rds_cache: dict[str, dict] = {}
@@ -80,7 +83,7 @@ class OpenSpecyLibrarySource:
             with tmp_path.open("wb") as handle:
                 shutil.copyfileobj(response, handle)
         tmp_path.replace(info.path)
-        self.refresh_index()
+        self.refresh_index(force=True)
         return info.path
 
     def clear(self) -> None:
@@ -90,13 +93,14 @@ class OpenSpecyLibrarySource:
         self._records = []
         self._decoder_error = ""
         self._rds_cache = {}
+        self.reference_cache.clear_source(self.name)
 
     def status_row(self) -> list[str]:
         cached = self.cached_library_keys()
         size = sum(info.path.stat().st_size for info in self.available_libraries() if info.path.exists())
         if self._records:
             status = "Indexed"
-            detail = f"{len(self._records)} spectra; {', '.join(cached)}"
+            detail = f"{len(self._records)} spectra; {self.indexed_band_count()} line-indexed; {', '.join(cached)}"
         elif cached:
             status = "Downloaded"
             suffix = f"; decoder missing: {self._decoder_error}" if self._decoder_error else "; not indexed"
@@ -104,20 +108,37 @@ class OpenSpecyLibrarySource:
         else:
             status = "External"
             detail = "Open FTIR/Raman library; use Download / update to cache .rds files"
-        return [self.name, status, f"{detail}; {size / (1024 * 1024):.1f} MB", str(self.cache_root)]
+        return [
+            self.name,
+            status,
+            detail,
+            str(len(self._records)),
+            f"{size / (1024 * 1024):.1f} MB",
+            str(self.cache_root),
+        ]
 
-    def refresh_index(self) -> None:
+    def refresh_index(self, *, force: bool = False) -> None:
         self._records = []
         self._decoder_error = ""
         self._rds_cache = {}
         cached = [info for info in self.available_libraries() if info.is_cached]
         if not cached:
+            self.reference_cache.clear_source(self.name)
+            return
+        cached_keys = {info.key for info in cached}
+        indexed_records = self.reference_cache.search(SourceQuery(), sources=[self.name], limit=100000)
+        indexed_keys = {str(record.metadata.get("library", "")) for record in indexed_records}
+        indexed_keys.discard("")
+        if not force and indexed_records and indexed_keys == cached_keys:
+            self._records = indexed_records
             return
         for info in cached:
             try:
                 self._records.extend(self._records_from_rds(info))
             except Exception as exc:
                 self._decoder_error = str(exc)
+        self.reference_cache.clear_source(self.name)
+        self.reference_cache.upsert_records(self._records)
 
     def _records_from_rds(self, info: OpenSpecyLibraryInfo) -> list[CandidateRecord]:
         result = self._load_rds(info.path)
@@ -204,18 +225,7 @@ class OpenSpecyLibrarySource:
         return records
 
     def search(self, query: SourceQuery) -> list[CandidateRecord]:
-        text = query.text.strip().lower()
-        results = []
-        for record in self._records:
-            if query.kind != SignalKind.UNKNOWN and record.kind not in {query.kind, SignalKind.UNKNOWN}:
-                continue
-            haystack = " ".join([record.name, record.formula, record.entry_id, record.source]).lower()
-            if text and text not in haystack:
-                continue
-            if query.formula and record.formula and not formula_contains_elements(record.formula, query.formula):
-                continue
-            results.append(record)
-        return results
+        return self.reference_cache.search(query, sources=[self.name])
 
     def load_spectrum(self, candidate: CandidateRecord) -> ReferenceSpectrum:
         path = Path(candidate.metadata.get("path", ""))
@@ -245,13 +255,103 @@ class OpenSpecyLibrarySource:
             name=candidate.name,
             source_path=str(path),
             record=candidate,
+            band_set=self.reference_cache.load_band_set(candidate.key, OPENSPECY_BAND_RECIPE_VERSION),
         )
         return spectrum
 
-    def load_candidates(self, query: SourceQuery | None = None) -> list[CompoundCandidate]:
+    def build_band_index(self) -> tuple[int, int]:
+        from vibrational_finder.preprocessing import PreprocessingOptions, preprocess_spectrum
+
+        indexed_keys = self.reference_cache.indexed_band_keys(self.name, OPENSPECY_BAND_RECIPE_VERSION)
+        indexed = 0
+        skipped = 0
+        pending: list[tuple[str, ReferenceBandSet]] = []
+        preprocessing_options = PreprocessingOptions(
+            baseline_method="arpls",
+            smoothing_window=7,
+            smoothing_method="savgol",
+            despike=True,
+            normalize="max",
+        )
+        detection_options = BandDetectionOptions(
+            min_prominence=0.04,
+            min_distance_cm1=8.0,
+            max_bands=80,
+            backend="auto",
+            fit_peaks=False,
+        )
+        for record in self._records:
+            if record.key in indexed_keys:
+                continue
+            try:
+                reference = self.load_spectrum(record)
+                processed = preprocess_spectrum(reference, preprocessing_options)
+                band_set = extract_reference_band_set(
+                    processed,
+                    detection_options,
+                    origin=str(record.metadata.get("origin") or "experimental"),
+                )
+                band_set.processing_recipe.update(
+                    {
+                        "baseline_method": "arpls",
+                        "smoothing_method": "savgol",
+                        "smoothing_window": 7,
+                        "despike": True,
+                        "normalization": "max",
+                    }
+                )
+                if not band_set.bands:
+                    skipped += 1
+                    continue
+                pending.append((record.key, band_set))
+                if len(pending) >= 100:
+                    self.reference_cache.upsert_band_sets(pending, OPENSPECY_BAND_RECIPE_VERSION)
+                    pending.clear()
+                indexed += 1
+            except Exception:
+                skipped += 1
+        if pending:
+            self.reference_cache.upsert_band_sets(pending, OPENSPECY_BAND_RECIPE_VERSION)
+        return indexed, skipped
+
+    def indexed_band_count(self) -> int:
+        return self.reference_cache.indexed_band_reference_count(self.name, OPENSPECY_BAND_RECIPE_VERSION)
+
+    def clear_band_index(self) -> None:
+        self.reference_cache.clear_band_index(self.name)
+
+    def load_candidates(
+        self,
+        query: SourceQuery | None = None,
+        *,
+        observed: ReferenceSpectrum | None = None,
+        observed_bands: list[SpectralBand] | None = None,
+        limit: int = 80,
+    ) -> list[CompoundCandidate]:
         query = query or SourceQuery()
+        if observed is not None and self.indexed_band_count() > 0:
+            if observed_bands is None:
+                observed_bands = detect_bands(
+                    observed,
+                    BandDetectionOptions(min_prominence=0.04, max_bands=60, backend="auto", fit_peaks=False),
+                )
+            strongest_observed = sorted(observed_bands, key=lambda band: band.intensity, reverse=True)[:24]
+            records = self.reference_cache.search_by_bands(
+                query,
+                [band.position for band in strongest_observed],
+                tolerance_cm1=20.0,
+                sources=[self.name],
+                recipe_version=OPENSPECY_BAND_RECIPE_VERSION,
+                limit=max(limit * 4, 200),
+            )
+            if len(records) < limit:
+                selected_keys = {record.key for record in records}
+                records.extend(record for record in self.search(query) if record.key not in selected_keys)
+            records = records[:limit]
+        else:
+            records = self.search(query)[:limit]
         candidates: list[CompoundCandidate] = []
-        for record in self.search(query):
+        for record in records:
             try:
                 reference = self.load_spectrum(record)
             except Exception:
@@ -266,6 +366,7 @@ class OpenSpecyLibrarySource:
                     kind=record.kind,
                     metadata=dict(record.metadata),
                     reference=reference,
+                    band_set=reference.band_set if reference is not None else None,
                 )
             )
         return candidates

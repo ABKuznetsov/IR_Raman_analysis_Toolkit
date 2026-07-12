@@ -30,7 +30,7 @@ fi
 echo "Creating/updating .venv with $PYTHON"
 "$PYTHON" -m venv .venv
 ".venv/bin/python" -m pip install --upgrade pip
-".venv/bin/python" -m pip install -e .
+".venv/bin/python" -m pip install -e ".[formats]"
 
 echo
 echo "Environment is ready."

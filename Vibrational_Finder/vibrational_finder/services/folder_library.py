@@ -7,7 +7,7 @@ from finder_core.chemistry import formula_contains_elements
 from finder_core.data_sources import SourceQuery
 from finder_core.models import CandidateRecord, SignalKind
 from finder_core.spectral_metadata import spectrum_geometry_metadata
-from vibrational_finder.io import load_xy_spectrum, supported_spectrum_extensions
+from vibrational_finder.io import guess_spectrum_metadata, load_xy_spectrum, supported_spectrum_extensions
 from vibrational_finder.models import CompoundCandidate, ReferenceSpectrum
 
 
@@ -51,6 +51,9 @@ class FolderLibrarySource:
         return records
 
     def _kind_from_path(self, path: Path) -> SignalKind:
+        guess = guess_spectrum_metadata(path)
+        if guess.kind != SignalKind.UNKNOWN:
+            return guess.kind
         text = " ".join(part.lower() for part in path.parts)
         if "ftir" in text or "infrared" in text or re.search(r"(^|[_\-\s])ir($|[_\-\s])", text):
             return SignalKind.FTIR

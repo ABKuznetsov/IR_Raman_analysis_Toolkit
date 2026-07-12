@@ -28,16 +28,23 @@ class CifStructureSource:
 
     def __init__(self, folder_path: str | Path) -> None:
         self.folder_path = Path(folder_path)
+        self._single_file = self.folder_path if self.folder_path.is_file() else None
         self._records = self._index_folder()
 
     def _index_folder(self) -> list[CandidateRecord]:
         records: list[CandidateRecord] = []
-        for path in sorted(self.folder_path.rglob("*.cif")):
+        if self._single_file is not None:
+            files = [self._single_file]
+            root = self._single_file.parent
+        else:
+            files = sorted(self.folder_path.rglob("*.cif"))
+            root = self.folder_path
+        for path in files:
             formula = self._formula_from_cif(path)
             name = self._name_from_cif(path)
             records.append(
                 CandidateRecord(
-                    key=f"CIF:{path.relative_to(self.folder_path)}",
+                    key=f"CIF:{path.relative_to(root)}",
                     source=self.name,
                     entry_id=path.stem,
                     name=name or path.stem.replace("_", " "),

@@ -12,7 +12,8 @@ from finder_core.cache import app_cache_dir
 from finder_core.data_sources import SourceQuery
 from finder_core.models import CandidateRecord, SignalKind
 from finder_core.spectral_metadata import spectrum_geometry_metadata
-from vibrational_finder.models import CompoundCandidate, ReferenceSpectrum
+from vibrational_finder.models import CompoundCandidate, ReferenceBandSet, ReferenceSpectrum, SpectralBand
+from vibrational_finder.band_detection import BandDetectionOptions, detect_bands, extract_reference_band_set
 from vibrational_finder.services.reference_cache import ReferenceSpectrumCache
 
 
@@ -30,6 +31,8 @@ RRUFF_RAMAN_ARCHIVES = {
 RRUFF_IR_ARCHIVES = {
     "raw": "https://www.rruff.net/zipped_data_files/infrared/RAW.zip",
 }
+
+RRUFF_BAND_RECIPE_VERSION = "arpls-savgol-ramanchada2-topo-normalized-v1"
 
 
 @dataclass(slots=True)
@@ -87,7 +90,7 @@ class RruffSource:
             with tmp_path.open("wb") as handle:
                 shutil.copyfileobj(response, handle)
         tmp_path.replace(target)
-        self.refresh_index()
+        self.refresh_index(force=True)
         return target
 
     def indexed_count(self, kind: SignalKind | None = None) -> int:
@@ -104,6 +107,7 @@ class RruffSource:
             (
                 f"{self.indexed_count(SignalKind.RAMAN)} Raman, "
                 f"{self.indexed_count(SignalKind.FTIR)} FTIR; "
+                f"{self.indexed_band_count()} line-indexed; "
                 f"{', '.join(cached) if cached else 'no archives cached'}"
             ),
             str(self.indexed_count()),
@@ -118,13 +122,27 @@ class RruffSource:
             return None
         return ssl.create_default_context(cafile=certifi.where())
 
-    def refresh_index(self) -> None:
+    def refresh_index(self, *, force: bool = False) -> None:
         self._records = []
         self._archive_by_record_key = {}
-        self.reference_cache.clear_source(self.name)
-        for info in self.available_archives():
-            if not info.path.exists():
-                continue
+        cached_archives = {info.path.stem: info.path for info in self.available_archives() if info.path.exists()}
+        cached_records = self.reference_cache.search(SourceQuery(), sources=[self.name], limit=100000)
+        indexed_archives = {str(record.metadata.get("archive", "")) for record in cached_records}
+        indexed_archives.discard("")
+        if not force and cached_records and indexed_archives == set(cached_archives):
+            self._records = cached_records
+            for record in cached_records:
+                archive_key = str(record.metadata.get("archive", ""))
+                if archive_key in cached_archives:
+                    self._archive_by_record_key[record.key] = cached_archives[archive_key]
+            return
+        if not cached_archives:
+            self.reference_cache.clear_source(self.name)
+            return
+        for removed_archive in indexed_archives - set(cached_archives):
+            self.reference_cache.clear_archive(removed_archive)
+        for archive_key, archive_path in cached_archives.items():
+            info = next(info for info in self.available_archives() if info.path == archive_path)
             self._index_archive(info.path, info.kind)
         self.reference_cache.upsert_records(self._records)
 
@@ -230,16 +248,135 @@ class RruffSource:
             name=candidate.name,
             source_path=f"{archive_path}:{member}",
             record=candidate,
+            band_set=self.reference_cache.load_band_set(candidate.key, RRUFF_BAND_RECIPE_VERSION),
         )
         return spectrum
 
-    def load_candidates(self, query: SourceQuery | None = None) -> list[CompoundCandidate]:
-        query = query or SourceQuery()
-        candidates: list[CompoundCandidate] = []
-        for record in self.search(query):
+    def build_band_index(self) -> tuple[int, int]:
+        from vibrational_finder.preprocessing import PreprocessingOptions, preprocess_spectrum
+
+        indexed_keys = self.reference_cache.indexed_band_keys(self.name, RRUFF_BAND_RECIPE_VERSION)
+        indexed = 0
+        skipped = 0
+        pending = []
+        records_by_archive: dict[Path, list[CandidateRecord]] = {}
+        for record in self._records:
+            if record.key not in indexed_keys and record.key in self._archive_by_record_key:
+                records_by_archive.setdefault(self._archive_by_record_key[record.key], []).append(record)
+        preprocessing_options = PreprocessingOptions(
+            baseline_method="arpls",
+            smoothing_window=7,
+            smoothing_method="savgol",
+            despike=True,
+            normalize="max",
+        )
+        detection_options = BandDetectionOptions(
+            min_prominence=0.04,
+            min_distance_cm1=8.0,
+            max_bands=80,
+            backend="auto",
+            fit_peaks=False,
+        )
+        for archive_path, records in records_by_archive.items():
             try:
-                reference = self.load_spectrum(record)
-            except Exception:
+                archive = zipfile.ZipFile(archive_path)
+            except zipfile.BadZipFile:
+                skipped += len(records)
+                continue
+            with archive:
+                for record in records:
+                    try:
+                        member = record.metadata.get("member", "")
+                        text = archive.read(member).decode("utf-8", errors="ignore")
+                        x, y = self._parse_xy_text(text)
+                        reference = ReferenceSpectrum(x=x, y=y, kind=record.kind, name=record.name, record=record)
+                        processed = preprocess_spectrum(reference, preprocessing_options)
+                        band_set = extract_reference_band_set(
+                            processed,
+                            detection_options,
+                            origin="experimental",
+                        )
+                        band_set.processing_recipe.update(
+                            {
+                                "baseline_method": "arpls",
+                                "smoothing_method": "savgol",
+                                "smoothing_window": 7,
+                                "despike": True,
+                                "normalization": "max",
+                            }
+                        )
+                        if not band_set.bands:
+                            skipped += 1
+                            continue
+                        pending.append((record.key, band_set))
+                        if len(pending) >= 100:
+                            self.reference_cache.upsert_band_sets(pending, RRUFF_BAND_RECIPE_VERSION)
+                            pending.clear()
+                        indexed += 1
+                    except Exception:
+                        skipped += 1
+        if pending:
+            self.reference_cache.upsert_band_sets(pending, RRUFF_BAND_RECIPE_VERSION)
+        return indexed, skipped
+
+    def indexed_band_count(self) -> int:
+        return self.reference_cache.indexed_band_reference_count(self.name, RRUFF_BAND_RECIPE_VERSION)
+
+    def clear_band_index(self) -> None:
+        self.reference_cache.clear_band_index(self.name)
+
+    def load_candidates(
+        self,
+        query: SourceQuery | None = None,
+        *,
+        observed=None,
+        observed_bands: list[SpectralBand] | None = None,
+        limit: int = 80,
+    ) -> list[CompoundCandidate]:
+        query = query or SourceQuery()
+        records: list[CandidateRecord]
+        if observed is not None and self.indexed_band_count() > 0:
+            if observed_bands is None:
+                observed_bands = detect_bands(
+                    observed,
+                    BandDetectionOptions(min_prominence=0.04, max_bands=60, backend="auto", fit_peaks=False),
+                )
+            strongest_observed = sorted(observed_bands, key=lambda band: band.intensity, reverse=True)[:24]
+            records = self.reference_cache.search_by_bands(
+                query,
+                [band.position for band in strongest_observed],
+                tolerance_cm1=20.0,
+                sources=[self.name],
+                recipe_version=RRUFF_BAND_RECIPE_VERSION,
+                limit=max(limit * 5, 300),
+            )
+            if len(records) < max(limit * 5, 300):
+                selected_keys = {record.key for record in records}
+                records.extend(
+                    record
+                    for record in self.search(query)
+                    if record.key not in selected_keys
+                )
+                records = records[: max(limit * 5, 300)]
+            band_sets = self.reference_cache.load_band_sets(
+                [record.key for record in records],
+                RRUFF_BAND_RECIPE_VERSION,
+            )
+            records.sort(
+                key=lambda record: self._band_prefilter_score(
+                    strongest_observed,
+                    band_sets.get(record.key),
+                ),
+                reverse=True,
+            )
+            records = records[: min(limit, 40)]
+        else:
+            records = self.search(query)[:limit]
+        loaded_spectra = self._load_spectra(records)
+        candidates: list[CompoundCandidate] = []
+        for record in records:
+            reference = loaded_spectra.get(record.key)
+            if reference is None:
                 continue
             candidates.append(
                 CompoundCandidate(
@@ -251,9 +388,74 @@ class RruffSource:
                     kind=record.kind,
                     metadata=dict(record.metadata),
                     reference=reference,
+                    band_set=reference.band_set,
                 )
             )
         return candidates
+
+    def _load_spectra(self, records: list[CandidateRecord]) -> dict[str, ReferenceSpectrum]:
+        band_sets = self.reference_cache.load_band_sets(
+            [record.key for record in records],
+            RRUFF_BAND_RECIPE_VERSION,
+        )
+        records_by_archive: dict[Path, list[CandidateRecord]] = {}
+        for record in records:
+            archive_path = self._archive_by_record_key.get(record.key)
+            if archive_path is not None:
+                records_by_archive.setdefault(archive_path, []).append(record)
+        loaded: dict[str, ReferenceSpectrum] = {}
+        for archive_path, archive_records in records_by_archive.items():
+            try:
+                archive = zipfile.ZipFile(archive_path)
+            except zipfile.BadZipFile:
+                continue
+            with archive:
+                for record in archive_records:
+                    try:
+                        member = record.metadata.get("member", "")
+                        text = archive.read(member).decode("utf-8", errors="ignore")
+                        x, y = self._parse_xy_text(text)
+                    except Exception:
+                        continue
+                    loaded[record.key] = ReferenceSpectrum(
+                        x=x,
+                        y=y,
+                        kind=record.kind,
+                        name=record.name,
+                        source_path=f"{archive_path}:{member}",
+                        record=record,
+                        band_set=band_sets.get(record.key),
+                    )
+        return loaded
+
+    def _band_prefilter_score(
+        self,
+        observed_bands: list[SpectralBand],
+        reference_band_set: ReferenceBandSet | None,
+        tolerance_cm1: float = 20.0,
+    ) -> float:
+        if not observed_bands or reference_band_set is None or not reference_band_set.bands:
+            return 0.0
+        unused = set(range(len(reference_band_set.bands)))
+        weighted_match = 0.0
+        matched = 0
+        total_weight = sum(max(float(band.intensity), 0.05) for band in observed_bands)
+        for observed in observed_bands:
+            best_index = None
+            best_delta = tolerance_cm1
+            for index in unused:
+                delta = abs(float(observed.position) - float(reference_band_set.bands[index].position))
+                if delta <= best_delta:
+                    best_delta = delta
+                    best_index = index
+            if best_index is None:
+                continue
+            unused.remove(best_index)
+            matched += 1
+            weighted_match += max(float(observed.intensity), 0.05) * (1.0 - best_delta / tolerance_cm1)
+        coverage = weighted_match / max(total_weight, 1.0e-9)
+        precision = matched / max(len(reference_band_set.bands), 1)
+        return 0.8 * coverage + 0.2 * precision
 
     def _parse_xy_text(self, text: str) -> tuple[list[float], list[float]]:
         rows: list[tuple[float, float]] = []

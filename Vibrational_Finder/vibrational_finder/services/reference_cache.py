@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import math
+from numbers import Real
 import sqlite3
 import time
 
 from finder_core.chemistry import parse_formula_elements
 from finder_core.data_sources import SourceQuery
 from finder_core.models import CandidateRecord, SignalKind
+from vibrational_finder.models import ReferenceBandSet, SpectralBand
 
 
 class ReferenceSpectrumCache:
@@ -24,14 +27,319 @@ class ReferenceSpectrumCache:
 
     def clear_source(self, source: str) -> None:
         with self._connect() as connection:
+            connection.execute(
+                "delete from reference_bands where reference_key in "
+                "(select key from reference_spectra where source = ?)",
+                (source,),
+            )
             connection.execute("delete from reference_spectra where source = ?", (source,))
 
     def clear_archive(self, archive: str) -> None:
         with self._connect() as connection:
             connection.execute(
+                "delete from reference_bands where reference_key in "
+                "(select key from reference_spectra where json_extract(metadata_json, '$.archive') = ?)",
+                (archive,),
+            )
+            connection.execute(
                 "delete from reference_spectra where json_extract(metadata_json, '$.archive') = ?",
                 (archive,),
             )
+
+    def delete_keys(self, keys: set[str] | list[str]) -> None:
+        selected = [key for key in keys if key]
+        if not selected:
+            return
+        placeholders = ", ".join("?" for _ in selected)
+        with self._connect() as connection:
+            connection.execute(f"delete from reference_bands where reference_key in ({placeholders})", selected)
+            connection.execute(f"delete from reference_spectra where key in ({placeholders})", selected)
+
+    def size_bytes(self) -> int:
+        try:
+            return self.index_path.stat().st_size
+        except OSError:
+            return 0
+
+    def upsert_band_set(self, reference_key: str, band_set: ReferenceBandSet, recipe_version: str) -> None:
+        with self._connect() as connection:
+            self._upsert_band_set(connection, reference_key, band_set, recipe_version)
+
+    def upsert_band_sets(
+        self,
+        items: list[tuple[str, ReferenceBandSet]],
+        recipe_version: str,
+    ) -> None:
+        with self._connect() as connection:
+            for reference_key, band_set in items:
+                self._upsert_band_set(connection, reference_key, band_set, recipe_version)
+
+    def _upsert_band_set(
+        self,
+        connection: sqlite3.Connection,
+        reference_key: str,
+        band_set: ReferenceBandSet,
+        recipe_version: str,
+    ) -> None:
+        connection.execute("delete from reference_bands where reference_key = ?", (reference_key,))
+        connection.executemany(
+            """
+            insert into reference_bands(
+                reference_key, band_index, position, intensity, width, prominence,
+                assignment, symmetry, confidence, origin, extraction_method,
+                processing_json, recipe_version
+            ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    reference_key,
+                    index,
+                    float(band.position),
+                    float(band.intensity),
+                    float(band.width),
+                    float(band.prominence),
+                    band.assignment,
+                    band.symmetry,
+                    float(band.confidence),
+                    band_set.origin,
+                    band_set.extraction_method,
+                    json.dumps(band_set.processing_recipe, ensure_ascii=True, sort_keys=True),
+                    recipe_version,
+                )
+                for index, band in enumerate(band_set.bands)
+            ],
+        )
+
+    def load_band_set(self, reference_key: str, recipe_version: str = "") -> ReferenceBandSet | None:
+        where = ["reference_key = ?"]
+        params: list[object] = [reference_key]
+        if recipe_version:
+            where.append("recipe_version = ?")
+            params.append(recipe_version)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                select position, intensity, width, prominence, assignment, symmetry,
+                       confidence, origin, extraction_method, processing_json
+                from reference_bands
+                where {' and '.join(where)}
+                order by band_index
+                """,
+                params,
+            ).fetchall()
+        if not rows:
+            return None
+        try:
+            processing = json.loads(rows[0]["processing_json"] or "{}")
+        except json.JSONDecodeError:
+            processing = {}
+        return ReferenceBandSet(
+            bands=[
+                SpectralBand(
+                    position=float(row["position"]),
+                    intensity=float(row["intensity"]),
+                    width=float(row["width"]),
+                    prominence=float(row["prominence"]),
+                    assignment=row["assignment"],
+                    symmetry=row["symmetry"],
+                    confidence=float(row["confidence"]),
+                )
+                for row in rows
+            ],
+            origin=rows[0]["origin"],
+            extraction_method=rows[0]["extraction_method"],
+            processing_recipe=processing,
+        )
+
+    def load_band_sets(self, reference_keys: list[str], recipe_version: str = "") -> dict[str, ReferenceBandSet]:
+        keys = list(dict.fromkeys(key for key in reference_keys if key))
+        if not keys:
+            return {}
+        placeholders = ", ".join("?" for _ in keys)
+        where = [f"reference_key in ({placeholders})"]
+        params: list[object] = list(keys)
+        if recipe_version:
+            where.append("recipe_version = ?")
+            params.append(recipe_version)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                select reference_key, position, intensity, width, prominence, assignment,
+                       symmetry, confidence, origin, extraction_method, processing_json
+                from reference_bands
+                where {' and '.join(where)}
+                order by reference_key, band_index
+                """,
+                params,
+            ).fetchall()
+        grouped: dict[str, list[sqlite3.Row]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["reference_key"]), []).append(row)
+        result: dict[str, ReferenceBandSet] = {}
+        for key, band_rows in grouped.items():
+            try:
+                processing = json.loads(band_rows[0]["processing_json"] or "{}")
+            except json.JSONDecodeError:
+                processing = {}
+            result[key] = ReferenceBandSet(
+                bands=[
+                    SpectralBand(
+                        position=float(row["position"]),
+                        intensity=float(row["intensity"]),
+                        width=float(row["width"]),
+                        prominence=float(row["prominence"]),
+                        assignment=row["assignment"],
+                        symmetry=row["symmetry"],
+                        confidence=float(row["confidence"]),
+                    )
+                    for row in band_rows
+                ],
+                origin=band_rows[0]["origin"],
+                extraction_method=band_rows[0]["extraction_method"],
+                processing_recipe=processing,
+            )
+        return result
+
+    def indexed_band_reference_count(self, source: str = "", recipe_version: str = "") -> int:
+        where = ["1 = 1"]
+        params: list[object] = []
+        if source:
+            where.append("r.source = ?")
+            params.append(source)
+        if recipe_version:
+            where.append("b.recipe_version = ?")
+            params.append(recipe_version)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"""
+                select count(distinct b.reference_key)
+                from reference_bands b
+                join reference_spectra r on r.key = b.reference_key
+                where {' and '.join(where)}
+                """,
+                params,
+            ).fetchone()
+        return int(row[0] if row else 0)
+
+    def indexed_band_count(self, source: str = "", recipe_version: str = "") -> int:
+        where = ["1 = 1"]
+        params: list[object] = []
+        if source:
+            where.append("r.source = ?")
+            params.append(source)
+        if recipe_version:
+            where.append("b.recipe_version = ?")
+            params.append(recipe_version)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"""
+                select count(*)
+                from reference_bands b
+                join reference_spectra r on r.key = b.reference_key
+                where {' and '.join(where)}
+                """,
+                params,
+            ).fetchone()
+        return int(row[0] if row else 0)
+
+    def indexed_band_keys(self, source: str = "", recipe_version: str = "") -> set[str]:
+        where = ["1 = 1"]
+        params: list[object] = []
+        if source:
+            where.append("r.source = ?")
+            params.append(source)
+        if recipe_version:
+            where.append("b.recipe_version = ?")
+            params.append(recipe_version)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                select distinct b.reference_key
+                from reference_bands b
+                join reference_spectra r on r.key = b.reference_key
+                where {' and '.join(where)}
+                """,
+                params,
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def clear_band_index(self, source: str = "") -> None:
+        with self._connect() as connection:
+            if source:
+                connection.execute(
+                    "delete from reference_bands where reference_key in "
+                    "(select key from reference_spectra where source = ?)",
+                    (source,),
+                )
+            else:
+                connection.execute("delete from reference_bands")
+
+    def search_by_bands(
+        self,
+        query: SourceQuery,
+        positions: list[float],
+        *,
+        tolerance_cm1: float = 20.0,
+        sources: list[str] | None = None,
+        recipe_version: str = "",
+        limit: int = 200,
+    ) -> list[CandidateRecord]:
+        finite_positions = [
+            float(position)
+            for position in positions
+            if isinstance(position, Real) and math.isfinite(float(position))
+        ]
+        if not finite_positions:
+            return self.search(query, sources=sources, limit=limit)
+        selected_positions = finite_positions[:80]
+        where = ["1 = 1"]
+        params: list[object] = []
+        if query.kind != SignalKind.UNKNOWN:
+            where.append("(r.kind = ? or r.kind = ?)")
+            params.extend([query.kind.value, SignalKind.UNKNOWN.value])
+        allowed_sources = [source for source in sources or [] if source]
+        if allowed_sources:
+            placeholders = ", ".join("?" for _ in allowed_sources)
+            where.append(f"r.source in ({placeholders})")
+            params.extend(allowed_sources)
+        for element in sorted(parse_formula_elements(query.formula)):
+            where.append("' ' || r.elements || ' ' like ?")
+            params.append(f"% {element} %")
+        text = query.text.strip().lower()
+        if text:
+            like_text = f"%{text}%"
+            where.append(
+                "(lower(r.entry_id) like ? or lower(r.name) like ? or "
+                "lower(r.formula) like ? or lower(r.metadata_json) like ?)"
+            )
+            params.extend([like_text, like_text, like_text, like_text])
+        if recipe_version:
+            where.append("b.recipe_version = ?")
+            params.append(recipe_version)
+        query_band_sql = " union all ".join("select ? as query_index, ? as query_position" for _ in selected_positions)
+        query_band_params: list[object] = []
+        for index, position in enumerate(selected_positions):
+            query_band_params.extend([index, position])
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                with query_bands as ({query_band_sql})
+                select r.key, r.source, r.entry_id, r.name, r.formula, r.kind, r.metadata_json,
+                       count(distinct q.query_index) as observed_hits,
+                       count(distinct b.band_index) as band_hits,
+                       min(abs(b.position - q.query_position)) as best_delta
+                from reference_spectra r
+                join reference_bands b on b.reference_key = r.key
+                join query_bands q
+                  on b.position between q.query_position - ? and q.query_position + ?
+                where {' and '.join(where)}
+                group by r.key
+                order by observed_hits desc, band_hits desc, best_delta asc, r.updated_at desc
+                limit ?
+                """,
+                (*query_band_params, tolerance_cm1, tolerance_cm1, *params, limit),
+            ).fetchall()
+        return [self._row_to_record(row) for row in rows]
 
     def indexed_count(self, kind: SignalKind | None = None, source: str = "") -> int:
         where = ["1 = 1"]
@@ -171,6 +479,29 @@ class ReferenceSpectrumCache:
             connection.execute("create index if not exists idx_reference_source on reference_spectra(source)")
             connection.execute("create index if not exists idx_reference_kind on reference_spectra(kind)")
             connection.execute("create index if not exists idx_reference_elements on reference_spectra(elements)")
+            connection.execute(
+                """
+                create table if not exists reference_bands (
+                    reference_key text not null,
+                    band_index integer not null,
+                    position real not null,
+                    intensity real not null default 0,
+                    width real not null default 0,
+                    prominence real not null default 0,
+                    assignment text not null default '',
+                    symmetry text not null default '',
+                    confidence real not null default 1,
+                    origin text not null default 'experimental',
+                    extraction_method text not null default '',
+                    processing_json text not null default '{}',
+                    recipe_version text not null default '',
+                    primary key(reference_key, band_index)
+                )
+                """
+            )
+            connection.execute("create index if not exists idx_reference_bands_key on reference_bands(reference_key)")
+            connection.execute("create index if not exists idx_reference_bands_position on reference_bands(position)")
+            connection.execute("create index if not exists idx_reference_bands_recipe on reference_bands(recipe_version)")
 
     def _connect(self) -> sqlite3.Connection:
         self.root.mkdir(parents=True, exist_ok=True)

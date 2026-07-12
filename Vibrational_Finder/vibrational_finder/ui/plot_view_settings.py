@@ -54,6 +54,7 @@ class PlotViewSettings:
     x_minor_tick_spacing: float = 0.0
     y_major_tick_spacing: float = 0.0
     y_minor_tick_spacing: float = 0.0
+    x_display_unit: str = "cm-1"
     bottom_axis_visible: bool = True
     bottom_axis_values_visible: bool = True
     bottom_axis_label_visible: bool = True
@@ -82,6 +83,7 @@ class PlotViewSettings:
     grid_alpha: float = 0.18
     legend_visible: bool = True
     legend_font_size: int = 10
+    legend_color: str = "#111111"
     cursor_vertical_line_visible: bool = False
     hkl_labels_visible: bool = False
     layer_observed_visible: bool = True
@@ -166,6 +168,8 @@ class CollapsibleSection(QWidget):
 
 class PlotViewSettingsWidget(QScrollArea):
     settingsChanged = Signal(object)
+    xAxisUnitChanged = Signal(str)
+    referenceViewChanged = Signal(str)
     profileCandidateColorRequested = Signal(int)
     _DEFAULT_SETTINGS_KEY = "plot_view/default_settings"
 
@@ -395,6 +399,21 @@ class PlotViewSettingsWidget(QScrollArea):
         self.active_profile_label.setObjectName("activeProfileLabel")
         self.active_profile_label.setWordWrap(True)
         layout.addWidget(self.active_profile_label)
+        reference_form = QFormLayout()
+        self.reference_view_combo = QComboBox()
+        self.reference_view_combo.addItem("Profiles", "profiles")
+        self.reference_view_combo.addItem("Lines", "lines")
+        self.reference_view_combo.addItem("Profiles + lines", "both")
+        self.reference_view_combo.setToolTip(
+            "Display complete reference spectra, extracted band lines, or both."
+        )
+        self.reference_view_combo.currentIndexChanged.connect(
+            lambda _index: self.referenceViewChanged.emit(
+                str(self.reference_view_combo.currentData() or "profiles")
+            )
+        )
+        reference_form.addRow("Reference display", self.reference_view_combo)
+        layout.addLayout(reference_form)
         return widget
 
     def _profile_candidates_section(self) -> QWidget:
@@ -411,13 +430,11 @@ class PlotViewSettingsWidget(QScrollArea):
         self.profile_candidate_table.setMinimumHeight(130)
         self.profile_candidate_table.cellDoubleClicked.connect(self._on_profile_candidate_double_clicked)
         header = self.profile_candidate_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self.profile_candidate_table.setColumnWidth(0, 52)
+        header.setStretchLastSection(False)
+        for column in range(self.profile_candidate_table.columnCount()):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((52, 92, 92, 190, 76, 76)):
+            self.profile_candidate_table.setColumnWidth(column, width)
         layout.addWidget(self.profile_candidate_table)
         return widget
 
@@ -451,11 +468,6 @@ class PlotViewSettingsWidget(QScrollArea):
                         item.setBackground(qcolor)
                         item.setForeground(QColor("#ffffff" if qcolor.lightness() < 150 else "#111111"))
                 self.profile_candidate_table.setItem(row, column, item)
-        self.profile_candidate_table.resizeColumnsToContents()
-        header = self.profile_candidate_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.profile_candidate_table.setColumnWidth(0, 52)
 
     def _title_section(self) -> QWidget:
         widget = QWidget()
@@ -546,7 +558,6 @@ class PlotViewSettingsWidget(QScrollArea):
         self.x_minor_tick_spin = self._tick_step_spin(1000.0, 0.1)
         self.y_major_tick_spin = self._tick_step_spin(1000000.0, 1.0)
         self.y_minor_tick_spin = self._tick_step_spin(1000000.0, 1.0)
-
         axis_grid = QGridLayout()
         axis_grid.setContentsMargins(0, 0, 0, 0)
         axis_grid.setHorizontalSpacing(8)
@@ -658,6 +669,11 @@ class PlotViewSettingsWidget(QScrollArea):
         layout.addLayout(form)
         return card
 
+    def _on_x_display_unit_changed(self, _index: int) -> None:
+        unit = self._scale_to_legacy_unit(self._combo_data(self.bottom_scale_combo, "wavenumber"))
+        self.xAxisUnitChanged.emit(unit)
+        self._emit_settings()
+
     def _plot_area_section(self) -> QWidget:
         widget = QWidget()
         form = QFormLayout(widget)
@@ -686,6 +702,8 @@ class PlotViewSettingsWidget(QScrollArea):
         self.legend_checkbox.setChecked(True)
         self.legend_checkbox.toggled.connect(self._emit_settings)
         self.legend_font_spin = self._spin(7, 20, 10)
+        self.legend_color_input = QLineEdit("#111111")
+        self.legend_color_input.textChanged.connect(self._emit_settings)
         self.cursor_line_checkbox = QCheckBox()
         self.cursor_line_checkbox.toggled.connect(self._emit_settings)
         self.hkl_labels_checkbox = QCheckBox()
@@ -709,6 +727,7 @@ class PlotViewSettingsWidget(QScrollArea):
         form.addRow("Grid alpha", self.grid_alpha_spin)
         form.addRow("Legend", self.legend_checkbox)
         form.addRow("Legend font", self.legend_font_spin)
+        form.addRow("Legend color", self._color_control(self.legend_color_input))
         form.addRow("Vertical cursor line", self.cursor_line_checkbox)
         form.addRow("Band labels", self.hkl_labels_checkbox)
         return widget
@@ -854,10 +873,41 @@ class PlotViewSettingsWidget(QScrollArea):
 
     def _axis_scale_combo(self, value: str, axis_name: str) -> QComboBox:
         combo = QComboBox()
-        combo.addItems(["wavenumber"])
-        combo.setCurrentText(value)
-        combo.currentTextChanged.connect(lambda mode, axis=axis_name: self._on_x_axis_mode_changed(axis, mode))
+        combo.addItem("Wavenumber / Raman shift", "wavenumber")
+        combo.addItem("Wavelength", "nm")
+        combo.addItem("Energy", "eV")
+        combo.setToolTip(
+            "FTIR wavelength is converted from absolute wavenumber. Raman wavelength is scattered wavelength for the selected laser."
+        )
+        self._set_axis_scale_combo(combo, value)
+        combo.currentIndexChanged.connect(lambda _index, axis=axis_name, target=combo: self._on_x_axis_mode_changed(axis, target))
         return combo
+
+    def _combo_data(self, combo: QComboBox, fallback: str) -> str:
+        return str(combo.currentData() or fallback)
+
+    def _set_axis_scale_combo(self, combo: QComboBox, value: str) -> None:
+        normalized = self._normalize_axis_scale(value)
+        index = combo.findData(normalized)
+        combo.setCurrentIndex(max(0, index))
+
+    def _normalize_axis_scale(self, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        aliases = {
+            "cm-1": "wavenumber",
+            "cm⁻¹": "wavenumber",
+            "wavenumbers": "wavenumber",
+            "raman shift": "wavenumber",
+            "wavelength": "nm",
+            "nanometer": "nm",
+            "nanometers": "nm",
+            "energy": "eV",
+            "ev": "eV",
+        }
+        return aliases.get(normalized, normalized if normalized in {"wavenumber", "nm", "eV"} else "wavenumber")
+
+    def _scale_to_legacy_unit(self, scale: str) -> str:
+        return {"nm": "nm", "eV": "eV"}.get(self._normalize_axis_scale(scale), "cm-1")
 
     def _on_aspect_mode_changed(self, _mode: str) -> None:
         is_custom = self.aspect_combo.currentText() == "Custom"
@@ -871,15 +921,30 @@ class PlotViewSettingsWidget(QScrollArea):
             return max(float(self.custom_aspect_width_spin.value()), 0.1) / height
         return self._ASPECTS.get(self.aspect_combo.currentText())
 
-    def _on_x_axis_mode_changed(self, axis_name: str, mode: str) -> None:
+    def _on_x_axis_mode_changed(self, axis_name: str, combo: QComboBox) -> None:
         label_input = self.bottom_label_input if axis_name == "bottom" else self.top_label_input
         unit_input = self.bottom_unit_input if axis_name == "bottom" else self.top_unit_input
-        current_label = label_input.text().strip().lower()
-        current_unit = unit_input.text().strip().lower()
-        if current_label in {"", "2theta", "2 theta", "2-theta", "d"}:
-            label_input.setText("Wavenumber")
-        if current_unit in {"", "deg", "degree", "degrees", "a", "angstrom", "angstroms"}:
-            unit_input.setText("cm-1")
+        scale = self._combo_data(combo, "wavenumber")
+        label_by_scale = {
+            "wavenumber": "Wavenumber",
+            "nm": "Wavelength",
+            "eV": "Energy",
+        }
+        unit_by_scale = {
+            "wavenumber": "cm-1",
+            "nm": "nm",
+            "eV": "eV",
+        }
+        current_label = label_input.text().strip()
+        current_unit = unit_input.text().strip()
+        auto_labels = {"", "2theta", "2 theta", "2-theta", "d", "wavenumber", "raman shift", "wavelength", "energy"}
+        auto_units = {"", "deg", "degree", "degrees", "a", "angstrom", "angstroms", "cm-1", "cm⁻¹", "nm", "ev", "eV"}
+        if current_label.lower() in auto_labels:
+            label_input.setText(label_by_scale.get(scale, "Wavenumber"))
+        if current_unit in auto_units or current_unit.lower() in auto_units:
+            unit_input.setText(unit_by_scale.get(scale, "cm-1"))
+        if axis_name == "bottom":
+            self.xAxisUnitChanged.emit(self._scale_to_legacy_unit(scale))
         self._emit_settings()
 
     def settings(self) -> PlotViewSettings:
@@ -904,16 +969,17 @@ class PlotViewSettingsWidget(QScrollArea):
             x_minor_tick_spacing=float(self.x_minor_tick_spin.value()),
             y_major_tick_spacing=float(self.y_major_tick_spin.value()),
             y_minor_tick_spacing=float(self.y_minor_tick_spin.value()),
+            x_display_unit=self._scale_to_legacy_unit(self._combo_data(self.bottom_scale_combo, "wavenumber")),
             bottom_axis_visible=bool(self.bottom_axis_checkbox.isChecked()),
             bottom_axis_values_visible=bool(self.bottom_values_checkbox.isChecked()),
             bottom_axis_label_visible=bool(self.bottom_label_checkbox.isChecked()),
-            bottom_axis_scale=self.bottom_scale_combo.currentText(),
+            bottom_axis_scale=self._combo_data(self.bottom_scale_combo, "wavenumber"),
             bottom_axis_label=self.bottom_label_input.text().strip() or "Wavenumber",
             bottom_axis_unit=self.bottom_unit_input.text().strip(),
             top_axis_visible=bool(self.top_axis_checkbox.isChecked()),
             top_axis_values_visible=bool(self.top_values_checkbox.isChecked()),
             top_axis_label_visible=bool(self.top_label_checkbox.isChecked()),
-            top_axis_scale=self.top_scale_combo.currentText(),
+            top_axis_scale=self._combo_data(self.top_scale_combo, "wavenumber"),
             top_axis_label=self.top_label_input.text().strip() or "Wavenumber",
             top_axis_unit=self.top_unit_input.text().strip(),
             left_axis_visible=bool(self.left_axis_checkbox.isChecked()),
@@ -932,6 +998,7 @@ class PlotViewSettingsWidget(QScrollArea):
             grid_alpha=float(self.grid_alpha_spin.value()),
             legend_visible=bool(self.legend_checkbox.isChecked()),
             legend_font_size=int(self.legend_font_spin.value()),
+            legend_color=self.legend_color_input.text().strip() or "#111111",
             cursor_vertical_line_visible=bool(self.cursor_line_checkbox.isChecked()),
             hkl_labels_visible=bool(self.hkl_labels_checkbox.isChecked()),
             layer_observed_visible=bool(self.layer_observed_checkbox.isChecked()),
@@ -1006,13 +1073,16 @@ class PlotViewSettingsWidget(QScrollArea):
         self.bottom_axis_checkbox.setChecked(settings.bottom_axis_visible)
         self.bottom_values_checkbox.setChecked(settings.bottom_axis_values_visible)
         self.bottom_label_checkbox.setChecked(settings.bottom_axis_label_visible)
-        self.bottom_scale_combo.setCurrentText(settings.bottom_axis_scale)
+        bottom_scale = settings.bottom_axis_scale
+        if self._normalize_axis_scale(bottom_scale) == "wavenumber" and settings.x_display_unit in {"nm", "eV"}:
+            bottom_scale = settings.x_display_unit
+        self._set_axis_scale_combo(self.bottom_scale_combo, bottom_scale)
         self.bottom_label_input.setText(settings.bottom_axis_label)
         self.bottom_unit_input.setText(settings.bottom_axis_unit)
         self.top_axis_checkbox.setChecked(settings.top_axis_visible)
         self.top_values_checkbox.setChecked(settings.top_axis_values_visible)
         self.top_label_checkbox.setChecked(settings.top_axis_label_visible)
-        self.top_scale_combo.setCurrentText(settings.top_axis_scale)
+        self._set_axis_scale_combo(self.top_scale_combo, settings.top_axis_scale)
         self.top_label_input.setText(settings.top_axis_label)
         self.top_unit_input.setText(settings.top_axis_unit)
         self.left_axis_checkbox.setChecked(settings.left_axis_visible)
@@ -1040,6 +1110,7 @@ class PlotViewSettingsWidget(QScrollArea):
         self.grid_alpha_spin.setValue(settings.grid_alpha)
         self.legend_checkbox.setChecked(settings.legend_visible)
         self.legend_font_spin.setValue(settings.legend_font_size)
+        self.legend_color_input.setText(settings.legend_color)
         self.cursor_line_checkbox.setChecked(settings.cursor_vertical_line_visible)
         self.hkl_labels_checkbox.setChecked(settings.hkl_labels_visible)
         self.layer_observed_checkbox.setChecked(settings.layer_observed_visible)

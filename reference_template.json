@@ -1,0 +1,40 @@
+{
+  "format": "vibrational-reference",
+  "version": 1,
+  "kind": "raman",
+  "metadata": {
+    "name": "",
+    "formula": "",
+    "alternative_name": "",
+    "origin": "experimental",
+    "laser_nm": "",
+    "temperature_K": "",
+    "pressure": "",
+    "sample_form": "",
+    "orientation": "",
+    "polarization": "",
+    "instrument": "",
+    "resolution": "",
+    "operator": "",
+    "laboratory": "",
+    "measurement_date": "",
+    "doi": "",
+    "citation": "",
+    "notes": ""
+  },
+  "profile": null,
+  "bands": [
+    {
+      "position_cm1": null,
+      "intensity": null,
+      "fwhm_cm1": null,
+      "mode": "",
+      "symmetry": "",
+      "assignment": "",
+      "polarization": "",
+      "orientation": "",
+      "confidence": "reported / estimated / inferred / unknown",
+      "comment": "Article page, table, figure, or note"
+    }
+  ]
+}

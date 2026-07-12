@@ -73,7 +73,7 @@ if errorlevel 1 goto failed
 
 echo Installing IR/Raman Phase Finder requirements...
 echo Installing IR/Raman Phase Finder requirements...>> "%LOG_FILE%"
-call "%ENV_ROOT%\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 60 --retries 3 --prefer-binary -e "%APP_ROOT%" >> "%LOG_FILE%" 2>&1
+call "%ENV_ROOT%\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 60 --retries 3 --prefer-binary -e "%APP_ROOT%[formats]" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto failed
 
 echo Writing launchers...>> "%LOG_FILE%"

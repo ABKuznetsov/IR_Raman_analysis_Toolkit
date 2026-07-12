@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.interpolate import PchipInterpolator
+from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
 
 try:
@@ -11,6 +12,39 @@ except Exception:
 
 
 PYBASELINES_METHODS = {"auto", "arpls", "asls", "snip", "rolling_ball"}
+
+
+def remove_narrow_spikes(
+    y: np.ndarray,
+    threshold: float = 8.0,
+    max_width: int = 2,
+    median_window: int = 5,
+) -> np.ndarray:
+    """Replace isolated positive spikes while preserving broader Raman bands."""
+    values = np.asarray(y, dtype=float)
+    if len(values) < 7:
+        return values.copy()
+    median_window = max(3, int(median_window))
+    if median_window % 2 == 0:
+        median_window += 1
+    local_median = median_filter(values, size=median_window, mode="nearest")
+    residual = values - local_median
+    noise = float(np.nanmedian(np.abs(np.diff(values)))) * 1.4826
+    noise = max(noise, float(np.nanstd(residual)) * 0.15, 1.0e-12)
+    candidates = residual > abs(float(threshold)) * noise
+    corrected = values.copy()
+    index = 0
+    while index < len(values):
+        if not candidates[index]:
+            index += 1
+            continue
+        end = index + 1
+        while end < len(values) and candidates[end]:
+            end += 1
+        if end - index <= max(1, int(max_width)):
+            corrected[index:end] = local_median[index:end]
+        index = end
+    return corrected
 
 
 def auto_smoothing_window(x: np.ndarray, y: np.ndarray) -> int:
@@ -64,7 +98,16 @@ def smooth_spectrum_curve(
         return np.convolve(padded, kernel, mode="valid")
 
 
-def estimate_background(x, y, degree: int = 10, method: str = "auto") -> np.ndarray:
+def estimate_background(
+    x,
+    y,
+    degree: int = 10,
+    method: str = "auto",
+    *,
+    lam: float | None = None,
+    asymmetry: float = 0.01,
+    half_window: int | None = None,
+) -> np.ndarray:
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     if len(y) < 15:
@@ -73,7 +116,14 @@ def estimate_background(x, y, degree: int = 10, method: str = "auto") -> np.ndar
         if method == "polynomial":
             background = _chebyshev_background(x, y, degree=degree)
         elif method in PYBASELINES_METHODS:
-            background = _pybaselines_background(x, y, method=method)
+            background = _pybaselines_background(
+                x,
+                y,
+                method=method,
+                lam=lam,
+                asymmetry=asymmetry,
+                half_window=half_window,
+            )
         else:
             background = _local_envelope_background(x, y)
     except Exception:
@@ -86,7 +136,15 @@ def estimate_background(x, y, degree: int = 10, method: str = "auto") -> np.ndar
     return np.clip(background, floor, ceiling)
 
 
-def _pybaselines_background(x: np.ndarray, y: np.ndarray, method: str = "auto") -> np.ndarray:
+def _pybaselines_background(
+    x: np.ndarray,
+    y: np.ndarray,
+    method: str = "auto",
+    *,
+    lam: float | None = None,
+    asymmetry: float = 0.01,
+    half_window: int | None = None,
+) -> np.ndarray:
     if Baseline is None:
         return _local_envelope_background(x, y)
     if np.all(np.diff(x) >= 0):
@@ -101,17 +159,23 @@ def _pybaselines_background(x: np.ndarray, y: np.ndarray, method: str = "auto") 
         return np.full_like(y, float(np.nanpercentile(y, 5)))
 
     baseline = Baseline(x_data=xs, check_finite=False)
-    lam = float(np.clip(len(ys) ** 2.15, 1.0e4, 1.0e8))
+    selected_lam = float(np.clip(lam if lam is not None else len(ys) ** 2.15, 1.0e2, 1.0e10))
     if method in {"auto", "arpls"}:
-        background_sorted, _params = baseline.arpls(ys, lam=lam)
+        background_sorted, _params = baseline.arpls(ys, lam=selected_lam)
     elif method == "asls":
-        background_sorted, _params = baseline.asls(ys, lam=lam, p=0.01)
+        background_sorted, _params = baseline.asls(
+            ys,
+            lam=selected_lam,
+            p=float(np.clip(asymmetry, 0.001, 0.5)),
+        )
     elif method == "snip":
-        max_half_window = max(8, min(80, len(ys) // 90))
+        max_half_window = int(half_window) if half_window is not None else max(8, min(80, len(ys) // 90))
+        max_half_window = max(2, min(max_half_window, max(2, (len(ys) - 1) // 2)))
         background_sorted, _params = baseline.snip(ys, max_half_window=max_half_window)
     elif method == "rolling_ball":
-        half_window = max(8, min(120, len(ys) // 60))
-        background_sorted, _params = baseline.rolling_ball(ys, half_window=half_window)
+        selected_half_window = int(half_window) if half_window is not None else max(8, min(120, len(ys) // 60))
+        selected_half_window = max(2, min(selected_half_window, max(2, (len(ys) - 1) // 2)))
+        background_sorted, _params = baseline.rolling_ball(ys, half_window=selected_half_window)
     else:
         return _local_envelope_background(x, y)
 

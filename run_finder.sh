@@ -10,6 +10,7 @@ export QT_QUICK_BACKEND=software
 
 find_python() {
     local candidates=(
+        "$HOME/Library/Application Support/XRD_Toolkit/env/bin/python"
         "../XRD/XRD_Analysis_Toolkit/.venv/bin/python"
         "$HOME/Yandex.Disk.localized/Python/XRD/XRD_Analysis_Toolkit/.venv/bin/python"
         ".venv/bin/python"
@@ -21,7 +22,7 @@ find_python() {
 
     local candidate
     for candidate in "${candidates[@]}"; do
-        if { [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; } && "$candidate" -c "import PySide6, numpy, scipy, pyqtgraph" >/dev/null 2>&1; then
+        if { [ -x "$candidate" ] || command -v "$candidate" >/dev/null 2>&1; } && "$candidate" -c "import PySide6, numpy, scipy, pyqtgraph, pybaselines, certifi, pyreadr, rdata, ijson" >/dev/null 2>&1; then
             echo "$candidate"
             return 0
         fi

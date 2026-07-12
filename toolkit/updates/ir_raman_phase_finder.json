@@ -1,28 +1,28 @@
 {
   "app_id": "ir_raman_phase_finder",
   "name": "IR/Raman Phase Finder",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "channel": "stable",
   "minimum_windows": "10.0",
-  "published_at": "2026-07-10",
-  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.4",
+  "published_at": "2026-07-12",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.5",
   "assets": [
     {
-      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
+      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.5.exe",
       "type": "installer",
       "platform": "windows-x64",
-      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
-      "sha256": "5258e61f11565b761412005c9a38bb412ae27158e0e968f2a2709381edc90c95",
-      "size_bytes": 3847936
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.5/IR_Raman_analysis_Toolkit_Setup_0.1.5.exe",
+      "sha256": "54a3fa42d6137a6b27ebf08fd7065d59dc69e8827a0c5467ef18b45028d5bff5",
+      "size_bytes": 3886507
     }
   ],
   "summary": [
-    "Add an XRD-style Pin control in the right tab corner that locks panel splitter movement.",
-    "Allow importing multiple Raman or FTIR experiment files in one action.",
-    "Normalize aligned reference previews with the same data used for matching.",
-    "Keep double-click and Reset view focused on experimental spectra only.",
-    "Preserve the existing layout, laser, drag-and-drop and element gate workflows."
+    "Integrate the 20260712 portable update package.",
+    "Add metadata, unit conversion and spectrum autodetection helpers.",
+    "Add editable reference workflows and reference editor UI.",
+    "Add ROD and JARVIS source modules alongside existing source-cache workflows.",
+    "Preserve the 0.1.4 layout pin, multi-import, normalization and drag-and-drop behavior."
   ],
-  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.4/IR_Raman_analysis_Toolkit_Setup_0.1.4.exe",
-  "installer_sha256": "5258e61f11565b761412005c9a38bb412ae27158e0e968f2a2709381edc90c95"
+  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.5/IR_Raman_analysis_Toolkit_Setup_0.1.5.exe",
+  "installer_sha256": "54a3fa42d6137a6b27ebf08fd7065d59dc69e8827a0c5467ef18b45028d5bff5"
 }
