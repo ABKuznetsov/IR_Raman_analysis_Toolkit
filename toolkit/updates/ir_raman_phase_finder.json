@@ -1,27 +1,38 @@
 {
   "app_id": "ir_raman_phase_finder",
   "name": "IR/Raman Phase Finder",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "channel": "stable",
   "minimum_windows": "10.0",
   "published_at": "2026-07-13",
-  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.6",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v0.1.7",
   "assets": [
     {
-      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.6.exe",
+      "name": "IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
       "type": "installer",
       "platform": "windows-x64",
-      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.6/IR_Raman_analysis_Toolkit_Setup_0.1.6.exe",
-      "sha256": "3a41d60d4ef61339c49c45efc6aab717eec9fd598abb46ee3933e74031cae59f",
-      "size_bytes": 3888408
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
+      "sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530",
+      "size_bytes": 3890502
     }
   ],
   "summary": [
     "Fix loading and saving filled reference templates with qualitative intensity labels.",
     "Persist user reference card edits back to .vsref files and the SQL line cache.",
     "Add project save/load support for spectra, sample cards and edited peak tables.",
-    "Simplify database maintenance with one SQL index update action and clearer button colors."
+    "Simplify database maintenance with one SQL index update action and clearer button colors.",
+    "Draw matched reference lines at experimental peak positions with split ticks showing residual shift.",
+    "Add clearing and per-row removal actions for the selected compound list.",
+    "Render experimental reference cards as peak lines without vibrational mode labels.",
+    "Keep reference profile and peak-line display modes independent for cards.",
+    "Expose reference profile/peak-line mode switching from the plot right-click menu.",
+    "Restore database peak lines and labels for selected reference overlays.",
+    "Keep reference display mode changes from hiding both profile and peak-line layers.",
+    "Use the existing right-click layer items for reference profile and peak-line visibility.",
+    "Separate reference profile, reference peak-line and bottom tick visibility.",
+    "Add right-click toggles for reference mode labels and vibration assignment labels.",
+    "Show reference mode and vibration assignment labels for previewed user references when metadata is available."
   ],
-  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.6/IR_Raman_analysis_Toolkit_Setup_0.1.6.exe",
-  "installer_sha256": "3a41d60d4ef61339c49c45efc6aab717eec9fd598abb46ee3933e74031cae59f"
+  "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
+  "installer_sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530"
 }

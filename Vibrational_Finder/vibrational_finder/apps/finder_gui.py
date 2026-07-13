@@ -437,6 +437,8 @@ class CandidateTableWidget(QTableWidget):
 class SelectedCompoundsTableWidget(QTableWidget):
     HEADERS = ["Color", "Compound", "Method", "Bands", "Match (%)"]
     visibilityChanged = Signal(str, bool)
+    removeRequested = Signal(str)
+    clearRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(0, len(self.HEADERS), parent)
@@ -448,6 +450,8 @@ class SelectedCompoundsTableWidget(QTableWidget):
         self.setAlternatingRowColors(True)
         self.setMinimumHeight(150)
         self.itemChanged.connect(self._on_item_changed)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
         self._resize_columns()
 
     def set_selected(
@@ -488,6 +492,28 @@ class SelectedCompoundsTableWidget(QTableWidget):
         key = str(item.data(Qt.ItemDataRole.UserRole) or "")
         if key:
             self.visibilityChanged.emit(key, item.checkState() == Qt.CheckState.Checked)
+
+    def _candidate_key_for_row(self, row: int) -> str:
+        if row < 0:
+            return ""
+        item = self.item(row, 0)
+        return str(item.data(Qt.ItemDataRole.UserRole) or "") if item is not None else ""
+
+    def _show_context_menu(self, point) -> None:
+        row = self.rowAt(point.y())
+        key = self._candidate_key_for_row(row)
+        if row >= 0:
+            self.selectRow(row)
+        menu = QMenu(self)
+        remove_action = menu.addAction("Remove selected compound")
+        remove_action.setEnabled(bool(key))
+        clear_action = menu.addAction("Clear selected compounds")
+        clear_action.setEnabled(self.rowCount() > 0)
+        action = menu.exec(self.viewport().mapToGlobal(point))
+        if action == remove_action and key:
+            self.removeRequested.emit(key)
+        elif action == clear_action:
+            self.clearRequested.emit()
 
     def _resize_columns(self) -> None:
         header = self.horizontalHeader()
@@ -791,7 +817,20 @@ class VibrationalFinderWindow(QMainWindow):
 
         self.selected_table = SelectedCompoundsTableWidget()
         self.selected_table.visibilityChanged.connect(self._on_selected_reference_visibility_changed)
-        controls_layout.addWidget(QLabel("Selected compounds"))
+        self.selected_table.removeRequested.connect(self._remove_selected_candidate)
+        self.selected_table.clearRequested.connect(self._clear_selected_candidates)
+        selected_header = QWidget()
+        selected_header_layout = QHBoxLayout(selected_header)
+        selected_header_layout.setContentsMargins(0, 0, 0, 0)
+        selected_header_layout.setSpacing(6)
+        selected_header_layout.addWidget(QLabel("Selected compounds"))
+        selected_header_layout.addStretch(1)
+        self.clear_selected_button = QPushButton("Clear")
+        self.clear_selected_button.setMinimumHeight(26)
+        self.clear_selected_button.setStyleSheet(_glass_button_style("#5f6368", "#8a8d91"))
+        self.clear_selected_button.clicked.connect(self._clear_selected_candidates)
+        selected_header_layout.addWidget(self.clear_selected_button)
+        controls_layout.addWidget(selected_header)
         controls_layout.addWidget(self.selected_table, 1)
         self.elements_splitter.addWidget(controls_panel)
         self.elements_splitter.setStretchFactor(0, 1)
@@ -1134,6 +1173,7 @@ class VibrationalFinderWindow(QMainWindow):
         self._set_cursor_vertical_line_enabled(settings.cursor_vertical_line_visible)
         self._apply_plot_view_aspect()
         self._redraw_plot()
+        self._draw_current_preview_overlay()
 
     def _apply_plot_view_aspect(self) -> None:
         aspect = getattr(self.plot_view_settings, "aspect_ratio", None)
@@ -2990,24 +3030,31 @@ class VibrationalFinderWindow(QMainWindow):
                             pen=pg.mkPen(color, width=width),
                             name=legend_name,
                         )
-                if self._reference_view_shows_lines() and getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                if self._result_should_draw_reference_lines(result):
                     bands = self._reference_bands_for_result(result)
-                    self._draw_reference_peak_sticks(
-                        bands,
-                        color=color,
-                        name=legend_name,
-                        shift=float(result.score.x_shift),
-                        kind=result.candidate.kind,
-                        observed_spectrum=spectrum,
-                        y_offset=y_offset,
-                    )
-                    self._draw_band_sticks(
-                        bands,
-                        color=color,
-                        name=legend_name,
-                        shift=float(result.score.x_shift),
-                        kind=result.candidate.kind,
-                    )
+                    if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                        show_labels = self._result_should_label_reference_lines(result, selected=True)
+                        self._draw_reference_peak_sticks(
+                            bands,
+                            color=color,
+                            name=legend_name,
+                            shift=float(result.score.x_shift),
+                            kind=result.candidate.kind,
+                            result=result,
+                            observed_spectrum=spectrum,
+                            y_offset=y_offset,
+                            show_mode_labels=show_labels,
+                            require_literature_metadata=False,
+                        )
+                    if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                        self._draw_band_sticks(
+                            bands,
+                            color=color,
+                            name=legend_name,
+                            shift=float(result.score.x_shift),
+                            kind=result.candidate.kind,
+                            result=result,
+                        )
 
     def _reference_view_mode(self) -> str:
         if self.plot_settings_panel is not None:
@@ -3015,12 +3062,44 @@ class VibrationalFinderWindow(QMainWindow):
         return "profiles"
 
     def _reference_view_shows_profiles(self) -> bool:
-        return self._reference_view_mode() in {"profiles", "both"}
+        return True
 
     def _reference_view_shows_lines(self) -> bool:
-        return self._reference_view_mode() in {"lines", "both"}
+        return True
+
+    def _result_has_reference_profile(self, result: VibrationalMatchResult) -> bool:
+        reference = result.aligned_reference or result.candidate.reference
+        return bool(reference is not None and reference.x and reference.y)
+
+    def _result_should_draw_reference_lines(self, result: VibrationalMatchResult) -> bool:
+        return bool(self._reference_bands_for_result(result))
+
+    def _result_is_database_reference(self, result: VibrationalMatchResult) -> bool:
+        return result.candidate.source in {
+            self.rruff_source.name,
+            self.rod_source.name,
+            self.openspecy_source.name,
+            self.jarvis_source.name,
+        }
+
+    def _reference_bands_have_enabled_labels(self, bands: list) -> bool:
+        return any(self._reference_peak_label(band) for band in bands)
+
+    def _result_should_label_reference_lines(self, result: VibrationalMatchResult, *, selected: bool = False) -> bool:
+        return self._reference_bands_have_enabled_labels(self._reference_bands_for_result(result))
 
     def _on_reference_view_changed(self) -> None:
+        mode = self._reference_view_mode()
+        self.plot_view_settings = replace(
+            self.plot_view_settings,
+            layer_phase_profiles_visible=mode in {"profiles", "both"},
+            layer_phase_ticks_visible=mode in {"lines", "both"},
+        )
+        panel = getattr(self, "plot_settings_panel", None)
+        if panel is not None and hasattr(panel, "_apply_settings"):
+            blocked = panel.blockSignals(True)
+            panel._apply_settings(self.plot_view_settings)
+            panel.blockSignals(blocked)
         self._redraw_plot()
         self._reset_plot_view()
 
@@ -3090,8 +3169,9 @@ class VibrationalFinderWindow(QMainWindow):
         y_max: float,
     ) -> tuple[float, float, tuple[float, float, float, float]]:
         y_span = max(y_max - y_min, 1.0e-9)
-        width = max(x_span * (0.018 + 0.006 * len(text)), x_span * 0.028)
-        height = y_span * 0.038
+        text_lines = text.splitlines() or [text]
+        width = max(x_span * (0.018 + 0.006 * max(len(line) for line in text_lines)), x_span * 0.028)
+        height = y_span * (0.038 + 0.026 * max(len(text_lines) - 1, 0))
         base_offset = y_span * 0.028
         row_step = y_span * 0.052
         directions = [-1] if place_below else [1]
@@ -3127,6 +3207,7 @@ class VibrationalFinderWindow(QMainWindow):
         name: str,
         shift: float = 0.0,
         kind: SignalKind = SignalKind.UNKNOWN,
+        result: VibrationalMatchResult | None = None,
     ) -> None:
         if not bands:
             return
@@ -3136,18 +3217,27 @@ class VibrationalFinderWindow(QMainWindow):
         self._reference_line_lane_count += 1
         base = y_min - span * (0.075 + 0.065 * lane)
         stick_height = span * 0.05
+        matched_positions = self._matched_reference_band_positions(result, bands, shift)
         x_values: list[float] = []
         y_values: list[float] = []
+        split_y = base + stick_height * 0.5
         for band in bands:
-            position_cm1 = float(band.position) + shift
+            position_cm1, reference_cm1 = self._reference_band_plot_positions(band, shift, matched_positions)
             display_kind = kind
             if display_kind == SignalKind.UNKNOWN and self.active_spectrum is not None:
                 display_kind = self.active_spectrum.kind
             position = float(self._convert_display_x([position_cm1], display_kind)[0])
             if not np.isfinite(position):
                 continue
-            x_values.extend((position, position, np.nan))
-            y_values.extend((base, base + stick_height, np.nan))
+            reference_position = float(self._convert_display_x([reference_cm1], display_kind)[0])
+            if np.isfinite(reference_position) and abs(reference_position - position) > self._split_tick_display_threshold():
+                x_values.extend((reference_position, reference_position, np.nan))
+                y_values.extend((base, split_y, np.nan))
+                x_values.extend((position, position, np.nan))
+                y_values.extend((split_y, base + stick_height, np.nan))
+            else:
+                x_values.extend((position, position, np.nan))
+                y_values.extend((base, base + stick_height, np.nan))
         self.match_plot.plot(
             x_values,
             y_values,
@@ -3182,11 +3272,66 @@ class VibrationalFinderWindow(QMainWindow):
         )
 
     def _reference_peak_label(self, band) -> str:
-        symmetry = str(getattr(band, "symmetry", "") or "").strip()
-        if symmetry:
-            return symmetry
-        mode = str(getattr(band, "mode", "") or "").strip()
-        return mode if len(mode) <= 18 else ""
+        parts: list[str] = []
+        if getattr(self.plot_view_settings, "layer_reference_mode_labels_visible", True):
+            symmetry = str(getattr(band, "symmetry", "") or "").strip()
+            mode = str(getattr(band, "mode", "") or "").strip()
+            mode_label = symmetry or mode
+            if mode_label and len(mode_label) <= 22:
+                parts.append(mode_label)
+        if getattr(self.plot_view_settings, "layer_reference_assignment_labels_visible", False):
+            assignment = str(getattr(band, "assignment", "") or "").strip()
+            if assignment:
+                parts.append(assignment if len(assignment) <= 34 else f"{assignment[:31]}...")
+        return "\n".join(parts)
+
+    def _matched_reference_band_positions(
+        self,
+        result: VibrationalMatchResult | None,
+        reference_bands: list,
+        shift: float,
+    ) -> dict[int, float]:
+        if result is None or not result.observed_bands or not reference_bands:
+            return {}
+        tolerance = max(float(MatchingOptions().tolerance_cm1), 1.0e-9)
+        unused_reference = set(range(len(reference_bands)))
+        matched: dict[int, float] = {}
+        observed_bands = sorted(result.observed_bands, key=lambda band: float(getattr(band, "intensity", 0.0)), reverse=True)
+        for observed in observed_bands:
+            try:
+                observed_position = float(observed.position)
+            except (TypeError, ValueError):
+                continue
+            best_index: int | None = None
+            best_delta = tolerance
+            for index in unused_reference:
+                try:
+                    reference_position = float(reference_bands[index].position) + shift
+                except (TypeError, ValueError):
+                    continue
+                delta = abs(observed_position - reference_position)
+                if delta <= best_delta:
+                    best_index = index
+                    best_delta = delta
+            if best_index is None:
+                continue
+            reference = reference_bands[best_index]
+            unused_reference.remove(best_index)
+            matched[id(reference)] = observed_position
+        return matched
+
+    @staticmethod
+    def _reference_band_plot_positions(
+        band,
+        shift: float,
+        matched_positions: dict[int, float],
+    ) -> tuple[float, float]:
+        reference_cm1 = float(band.position) + shift
+        return float(matched_positions.get(id(band), reference_cm1)), reference_cm1
+
+    def _split_tick_display_threshold(self) -> float:
+        x_min, x_max = self._visible_observed_x_extent()
+        return max(abs(x_max - x_min) * 0.00035, 1.0e-9)
 
     def _draw_reference_peak_sticks(
         self,
@@ -3196,20 +3341,23 @@ class VibrationalFinderWindow(QMainWindow):
         name: str,
         shift: float = 0.0,
         kind: SignalKind = SignalKind.UNKNOWN,
+        result: VibrationalMatchResult | None = None,
         observed_spectrum: ObservedSpectrum | None = None,
         y_offset: float | None = None,
+        show_mode_labels: bool = True,
+        require_literature_metadata: bool = True,
     ) -> None:
         if not bands:
             return
-        literature_bands = [band for band in bands if self._band_has_literature_peak_metadata(band)]
-        if not literature_bands:
+        peak_bands = [band for band in bands if self._band_has_literature_peak_metadata(band)] if require_literature_metadata else list(bands)
+        if not peak_bands:
             return
         y_min, y_max = self._visible_observed_y_extent()
         span = max(y_max - y_min, 1.0e-9)
-        intensities = np.asarray([max(float(band.intensity), 0.0) for band in literature_bands], dtype=float)
+        intensities = np.asarray([max(float(band.intensity), 0.0) for band in peak_bands], dtype=float)
         scale = float(np.nanmax(intensities)) if intensities.size else 0.0
         if scale <= 0.0:
-            intensities = np.ones(len(literature_bands), dtype=float)
+            intensities = np.ones(len(peak_bands), dtype=float)
             scale = 1.0
 
         spectrum = observed_spectrum if observed_spectrum is not None else self.active_spectrum
@@ -3227,9 +3375,10 @@ class VibrationalFinderWindow(QMainWindow):
         unknown_y: list[float] = []
         display_kind = kind if kind != SignalKind.UNKNOWN else (spectrum.kind if spectrum is not None else kind)
         zero_line = offset if spectrum is not None else 0.0
+        matched_positions = self._matched_reference_band_positions(result, bands, shift)
 
-        for band, intensity in zip(literature_bands, intensities):
-            position_cm1 = float(band.position) + shift
+        for band, intensity in zip(peak_bands, intensities):
+            position_cm1, reference_cm1 = self._reference_band_plot_positions(band, shift, matched_positions)
             position = float(self._convert_display_x([position_cm1], display_kind)[0])
             if not np.isfinite(position):
                 continue
@@ -3245,12 +3394,13 @@ class VibrationalFinderWindow(QMainWindow):
             x_values.extend((position, position, np.nan))
             y_values.extend((baseline, top, np.nan))
 
-            mode_label = self._reference_peak_label(band)
-            if mode_label:
-                known_labels.append((position, top, mode_label))
-            else:
-                unknown_x.append(position)
-                unknown_y.append(top + span * 0.018)
+            if show_mode_labels:
+                mode_label = self._reference_peak_label(band)
+                if mode_label:
+                    known_labels.append((position, top, mode_label))
+                else:
+                    unknown_x.append(position)
+                    unknown_y.append(top + span * 0.018)
 
         self.match_plot.plot(
             x_values,
@@ -3377,6 +3527,8 @@ class VibrationalFinderWindow(QMainWindow):
             self.visible_selected_candidate_keys,
             self.selected_candidate_colors,
         )
+        if hasattr(self, "clear_selected_button"):
+            self.clear_selected_button.setEnabled(bool(self.selected_results))
 
     def _on_selected_reference_visibility_changed(self, key: str, visible: bool) -> None:
         if visible:
@@ -3385,8 +3537,35 @@ class VibrationalFinderWindow(QMainWindow):
             self.visible_selected_candidate_keys.discard(key)
         self._save_active_spectrum_profile_state()
         self._redraw_plot()
-        if self._reference_view_shows_lines():
+        if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
             self._reset_plot_view()
+
+    def _remove_selected_candidate(self, key: str) -> None:
+        if not key:
+            return
+        before_count = len(self.selected_results)
+        self.selected_results = [result for result in self.selected_results if result.candidate.key != key]
+        if len(self.selected_results) == before_count:
+            return
+        self.visible_selected_candidate_keys.discard(key)
+        self.selected_candidate_colors.pop(key, None)
+        self._refresh_selected_table()
+        self._save_active_spectrum_profile_state()
+        self._redraw_plot()
+        self._reset_plot_view()
+        self.statusBar().showMessage("Selected compound removed.", 2500)
+
+    def _clear_selected_candidates(self) -> None:
+        if not self.selected_results:
+            return
+        self.selected_results.clear()
+        self.visible_selected_candidate_keys.clear()
+        self.selected_candidate_colors.clear()
+        self._refresh_selected_table()
+        self._save_active_spectrum_profile_state()
+        self._redraw_plot()
+        self._reset_plot_view()
+        self.statusBar().showMessage("Selected compounds cleared.", 2500)
 
     def _show_plot_context_menu(self, point) -> None:
         menu = QMenu(self)
@@ -3401,9 +3580,12 @@ class VibrationalFinderWindow(QMainWindow):
         menu.addAction(self._plot_setting_action("Observed spectrum", "layer_observed_visible"))
         menu.addAction(self._plot_setting_action("Reference preview", "layer_preview_peak_positions_visible"))
         menu.addAction(self._plot_setting_action("Processed spectrum", "layer_total_profile_visible"))
-        menu.addAction(self._plot_setting_action("Reference components", "layer_phase_profiles_visible"))
+        menu.addAction(self._plot_setting_action("Reference profile", "layer_phase_profiles_visible"))
         menu.addAction(self._plot_setting_action("Background", "layer_background_visible"))
-        menu.addAction(self._plot_setting_action("Band tick marks", "layer_phase_ticks_visible"))
+        menu.addAction(self._plot_setting_action("Reference peak lines", "layer_phase_ticks_visible"))
+        menu.addAction(self._plot_setting_action("Reference bottom ticks", "layer_reference_bottom_ticks_visible"))
+        menu.addAction(self._plot_setting_action("Mode labels", "layer_reference_mode_labels_visible"))
+        menu.addAction(self._plot_setting_action("Vibration assignments", "layer_reference_assignment_labels_visible"))
         menu.addAction(self._plot_setting_action("Assignment markers", "layer_coverage_markers_visible"))
         menu.addAction(self._plot_setting_action("Band labels", "layer_peak_labels_visible"))
         menu.addAction(self._plot_setting_action("Unassigned bands", "layer_unknown_peaks_visible"))
@@ -3419,11 +3601,32 @@ class VibrationalFinderWindow(QMainWindow):
     def _set_plot_view_setting(self, field: str, value: bool) -> None:
         self.plot_view_settings = replace(self.plot_view_settings, **{field: bool(value)})
         panel = getattr(self, "plot_settings_panel", None)
-        if panel is not None and hasattr(panel, "_apply_settings"):
+        checkbox_names = {
+            "grid_visible": "grid_checkbox",
+            "legend_visible": "legend_checkbox",
+            "cursor_vertical_line_visible": "cursor_line_checkbox",
+            "layer_observed_visible": "layer_observed_checkbox",
+            "layer_preview_peak_positions_visible": "layer_preview_peak_positions_checkbox",
+            "layer_total_profile_visible": "layer_total_profile_checkbox",
+            "layer_phase_profiles_visible": "layer_phase_profiles_checkbox",
+            "layer_background_visible": "layer_background_checkbox",
+            "layer_phase_ticks_visible": "layer_phase_ticks_checkbox",
+            "layer_reference_bottom_ticks_visible": "layer_reference_bottom_ticks_checkbox",
+            "layer_reference_mode_labels_visible": "layer_reference_mode_labels_checkbox",
+            "layer_reference_assignment_labels_visible": "layer_reference_assignment_labels_checkbox",
+            "layer_coverage_markers_visible": "layer_coverage_markers_checkbox",
+            "layer_peak_labels_visible": "layer_peak_labels_checkbox",
+            "layer_unknown_peaks_visible": "layer_unknown_peaks_checkbox",
+        }
+        checkbox = getattr(panel, checkbox_names.get(field, ""), None) if panel is not None else None
+        if checkbox is not None:
+            blocked = checkbox.blockSignals(True)
+            checkbox.setChecked(bool(value))
+            checkbox.blockSignals(blocked)
+        elif panel is not None and hasattr(panel, "_apply_settings"):
             blocked = panel.blockSignals(True)
             panel._apply_settings(self.plot_view_settings)
             panel.blockSignals(blocked)
-            self.plot_view_settings = panel.settings()
         self._apply_plot_view_settings(self.plot_view_settings)
 
     def _export_plot_image(self) -> None:
@@ -3563,6 +3766,104 @@ class VibrationalFinderWindow(QMainWindow):
         elif row >= 0 and row != previous_row and row < len(self.browse_records):
             self._preview_browse_record(row)
 
+    def _draw_current_preview_overlay(self) -> None:
+        if not getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True):
+            return
+        result = getattr(self, "_current_preview_result", None)
+        if result is not None:
+            if result.candidate.key in self.visible_selected_candidate_keys:
+                return
+            reference = result.aligned_reference or result.candidate.reference
+            legend_name = self._legend_candidate_name(result.candidate)
+            if (
+                reference is not None
+                and reference.x
+                and reference.y
+                and getattr(self.plot_view_settings, "layer_phase_profiles_visible", True)
+            ):
+                x, y = self._display_trace_xy(reference)
+                self.match_plot.plot(
+                    x,
+                    self._shift_y(y, self._active_display_offset),
+                    pen=pg.mkPen(
+                        self._plot_reference_color(),
+                        width=float(getattr(self.plot_view_settings, "calculated_width", 1.7)),
+                    ),
+                    name=legend_name,
+                )
+            if self._result_should_draw_reference_lines(result):
+                bands = self._reference_bands_for_result(result)
+                if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                    show_labels = self._result_should_label_reference_lines(result)
+                    self._draw_reference_peak_sticks(
+                        bands,
+                        color=self._plot_reference_color(),
+                        name=legend_name,
+                        shift=float(result.score.x_shift),
+                        kind=result.candidate.kind,
+                        result=result,
+                        show_mode_labels=show_labels,
+                        require_literature_metadata=show_labels,
+                    )
+                if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                    self._draw_band_sticks(
+                        bands,
+                        color=self._plot_reference_color(),
+                        name=legend_name,
+                        shift=float(result.score.x_shift),
+                        kind=result.candidate.kind,
+                        result=result,
+                    )
+            return
+
+        reference = getattr(self, "_current_preview_reference", None)
+        if reference is None:
+            return
+        origin = self._reference_origin(reference.record) if reference.record is not None else "experimental"
+        legend_name = self._legend_reference_name(reference)
+        if (
+            reference.x
+            and reference.y
+            and getattr(self.plot_view_settings, "layer_phase_profiles_visible", True)
+        ):
+            x, y = self._display_trace_xy(reference)
+            self.match_plot.plot(
+                x,
+                self._shift_y(y, self._active_display_offset),
+                pen=pg.mkPen(
+                    self._plot_reference_color(),
+                    width=float(getattr(self.plot_view_settings, "calculated_width", 1.7)),
+                ),
+                name=legend_name,
+            )
+        if (
+            getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+            and (
+                getattr(self.plot_view_settings, "layer_phase_ticks_visible", True)
+                or getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True)
+                or not (reference.x and reference.y)
+            )
+        ):
+            if reference.band_set is None:
+                reference.band_set = extract_reference_band_set(reference, origin=origin)
+            if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                show_labels = self._reference_bands_have_enabled_labels(reference.band_set.bands)
+                self._draw_reference_peak_sticks(
+                    reference.band_set.bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                    show_mode_labels=show_labels,
+                    require_literature_metadata=show_labels,
+                )
+            if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                self._draw_band_sticks(
+                    reference.band_set.bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                )
+
     def _preview_result(self, result: VibrationalMatchResult | None) -> None:
         if result is None:
             self._current_preview_reference = None
@@ -3580,6 +3881,7 @@ class VibrationalFinderWindow(QMainWindow):
             ref is not None
             and self._reference_view_shows_profiles()
             and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+            and getattr(self.plot_view_settings, "layer_phase_profiles_visible", True)
             and not already_visible
         ):
             x, y = self._display_trace_xy(ref)
@@ -3590,33 +3892,46 @@ class VibrationalFinderWindow(QMainWindow):
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=legend_name,
             )
-        if self._reference_view_shows_lines() and not already_visible:
+        if (
+            self._result_should_draw_reference_lines(result)
+            and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+            and not already_visible
+        ):
             bands = self._reference_bands_for_result(result)
             legend_name = self._legend_candidate_name(result.candidate)
-            self._draw_reference_peak_sticks(
-                bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                shift=float(result.score.x_shift),
-                kind=result.candidate.kind,
-            )
-            self._draw_band_sticks(
-                bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                shift=float(result.score.x_shift),
-                kind=result.candidate.kind,
-            )
+            if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                show_labels = self._result_should_label_reference_lines(result)
+                self._draw_reference_peak_sticks(
+                    bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    shift=float(result.score.x_shift),
+                    kind=result.candidate.kind,
+                    result=result,
+                    show_mode_labels=show_labels,
+                    require_literature_metadata=show_labels,
+                )
+            if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                self._draw_band_sticks(
+                    bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    shift=float(result.score.x_shift),
+                    kind=result.candidate.kind,
+                    result=result,
+                )
 
     def _preview_reference(self, reference: ReferenceSpectrum) -> None:
         self._current_preview_result = None
         self._current_preview_reference = reference
         self._redraw_plot()
+        origin = self._reference_origin(reference.record) if reference.record is not None else "experimental"
         if (
             reference.x
             and reference.y
             and self._reference_view_shows_profiles()
             and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+            and getattr(self.plot_view_settings, "layer_phase_profiles_visible", True)
         ):
             x, y = self._display_trace_xy(reference)
             legend_name = self._legend_reference_name(reference)
@@ -3626,25 +3941,31 @@ class VibrationalFinderWindow(QMainWindow):
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=legend_name,
             )
-        if self._reference_view_shows_lines():
+        if (
+            getattr(self.plot_view_settings, "layer_phase_ticks_visible", True)
+            or getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True)
+            or not (reference.x and reference.y)
+        ):
             if reference.band_set is None:
-                origin = "experimental"
-                if reference.record is not None:
-                    origin = self._reference_origin(reference.record)
                 reference.band_set = extract_reference_band_set(reference, origin=origin)
             legend_name = self._legend_reference_name(reference)
-            self._draw_reference_peak_sticks(
-                reference.band_set.bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                kind=reference.kind,
-            )
-            self._draw_band_sticks(
-                reference.band_set.bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                kind=reference.kind,
-            )
+            if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                show_labels = self._reference_bands_have_enabled_labels(reference.band_set.bands)
+                self._draw_reference_peak_sticks(
+                    reference.band_set.bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                    show_mode_labels=show_labels,
+                    require_literature_metadata=show_labels,
+                )
+            if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                self._draw_band_sticks(
+                    reference.band_set.bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                )
 
     def _preview_browse_record(self, row: int) -> None:
         if row < 0 or row >= len(self.browse_records):
@@ -3699,6 +4020,7 @@ class VibrationalFinderWindow(QMainWindow):
             and reference.y
             and self._reference_view_shows_profiles()
             and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+            and getattr(self.plot_view_settings, "layer_phase_profiles_visible", True)
         ):
             x, y = self._display_trace_xy(reference)
             legend_name = self._legend_candidate_name(candidate)
@@ -3708,20 +4030,30 @@ class VibrationalFinderWindow(QMainWindow):
                 pen=pg.mkPen(self._plot_reference_color(), width=float(getattr(self.plot_view_settings, "calculated_width", 1.7))),
                 name=legend_name,
             )
-        if self._reference_view_shows_lines():
+        if (
+            self._result_should_draw_reference_lines(result)
+            and getattr(self.plot_view_settings, "layer_preview_peak_positions_visible", True)
+        ):
             legend_name = self._legend_candidate_name(candidate)
-            self._draw_reference_peak_sticks(
-                result.reference_bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                kind=reference.kind,
-            )
-            self._draw_band_sticks(
-                result.reference_bands,
-                color=self._plot_reference_color(),
-                name=legend_name,
-                kind=reference.kind,
-            )
+            if getattr(self.plot_view_settings, "layer_phase_ticks_visible", True):
+                show_labels = self._result_should_label_reference_lines(result)
+                self._draw_reference_peak_sticks(
+                    result.reference_bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                    result=result,
+                    show_mode_labels=show_labels,
+                    require_literature_metadata=show_labels,
+                )
+            if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
+                self._draw_band_sticks(
+                    result.reference_bands,
+                    color=self._plot_reference_color(),
+                    name=legend_name,
+                    kind=reference.kind,
+                    result=result,
+                )
         self._set_reference_card(result)
 
     def _set_reference_card(self, result: VibrationalMatchResult) -> None:
@@ -4000,7 +4332,7 @@ class VibrationalFinderWindow(QMainWindow):
         self._refresh_selected_table()
         self._save_active_spectrum_profile_state()
         self._redraw_plot()
-        if self._reference_view_shows_lines():
+        if self._result_should_draw_reference_lines(result):
             self._reset_plot_view()
 
     def _set_card(self, result: VibrationalMatchResult | None) -> None:
@@ -5224,7 +5556,7 @@ class VibrationalFinderWindow(QMainWindow):
         if y_min == y_max:
             y_min -= 0.5
             y_max += 0.5
-        if self._reference_view_shows_lines():
+        if getattr(self.plot_view_settings, "layer_reference_bottom_ticks_visible", True):
             lane_count = max(int(getattr(self, "_reference_line_lane_count", 0)), 1)
             y_min -= (y_max - y_min) * (0.08 + 0.065 * max(lane_count - 1, 0))
         x_pad = (x_max - x_min) * 0.02

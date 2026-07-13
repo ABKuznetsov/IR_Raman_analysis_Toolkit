@@ -1,5 +1,5 @@
 #define MyAppName "IR/Raman Phase Finder"
-#define MyAppVersion "0.1.6"
+#define MyAppVersion "0.1.7"
 #define MyAppPublisher "ABKuznetsov"
 #define MyAppURL ""
 #define MyShortcutName "IR Raman Phase Finder"
@@ -40,7 +40,7 @@ Name: "desktopicon"; Description: "Create a Desktop shortcut"; GroupDescription:
 Name: "setupenv"; Description: "Prepare shared Sci Python environment after install"; GroupDescription: "Environment:"; Flags: checkedonce
 
 [Files]
-Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "installer\*,.git\*,.agents\*,.codex\*,.venv\*,__pycache__\*,*.pyc,*.pyo,.DS_Store,.ruff_cache\*,.pytest_cache\*,build\*,dist\*,logs\*,.cache\*,*.egg-info\*"
+Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "installer\*,.git\*,.agents\*,.codex\*,.venv\*,__pycache__\*,*.pyc,*.pyo,.DS_Store,.ruff_cache\*,.pytest_cache\*,build\*,dist\*,logs\*,.cache\*,*.egg-info\*,moly.json"
 
 [Icons]
 Name: "{group}\{#MyShortcutName}"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -File ""{app}\toolkit\launch_ir_raman_phase_finder_preview.ps1"" -AppId ir_raman_phase_finder"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"

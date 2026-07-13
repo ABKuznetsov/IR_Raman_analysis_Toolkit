@@ -92,6 +92,9 @@ class PlotViewSettings:
     layer_phase_profiles_visible: bool = True
     layer_background_visible: bool = True
     layer_phase_ticks_visible: bool = True
+    layer_reference_bottom_ticks_visible: bool = True
+    layer_reference_mode_labels_visible: bool = True
+    layer_reference_assignment_labels_visible: bool = False
     layer_coverage_markers_visible: bool = True
     layer_peak_labels_visible: bool = False
     layer_unknown_peaks_visible: bool = True
@@ -399,11 +402,11 @@ class PlotViewSettingsWidget(QScrollArea):
         self.active_profile_label.setObjectName("activeProfileLabel")
         self.active_profile_label.setWordWrap(True)
         layout.addWidget(self.active_profile_label)
-        reference_form = QFormLayout()
         self.reference_view_combo = QComboBox()
         self.reference_view_combo.addItem("Profiles", "profiles")
         self.reference_view_combo.addItem("Lines", "lines")
         self.reference_view_combo.addItem("Profiles + lines", "both")
+        self.reference_view_combo.setVisible(False)
         self.reference_view_combo.setToolTip(
             "Display complete reference spectra, extracted band lines, or both."
         )
@@ -412,8 +415,6 @@ class PlotViewSettingsWidget(QScrollArea):
                 str(self.reference_view_combo.currentData() or "profiles")
             )
         )
-        reference_form.addRow("Reference display", self.reference_view_combo)
-        layout.addLayout(reference_form)
         return widget
 
     def _profile_candidates_section(self) -> QWidget:
@@ -754,6 +755,15 @@ class PlotViewSettingsWidget(QScrollArea):
         self.layer_phase_ticks_checkbox = QCheckBox()
         self.layer_phase_ticks_checkbox.setChecked(True)
         self.layer_phase_ticks_checkbox.toggled.connect(self._emit_settings)
+        self.layer_reference_bottom_ticks_checkbox = QCheckBox()
+        self.layer_reference_bottom_ticks_checkbox.setChecked(True)
+        self.layer_reference_bottom_ticks_checkbox.toggled.connect(self._emit_settings)
+        self.layer_reference_mode_labels_checkbox = QCheckBox()
+        self.layer_reference_mode_labels_checkbox.setChecked(True)
+        self.layer_reference_mode_labels_checkbox.toggled.connect(self._emit_settings)
+        self.layer_reference_assignment_labels_checkbox = QCheckBox()
+        self.layer_reference_assignment_labels_checkbox.setChecked(False)
+        self.layer_reference_assignment_labels_checkbox.toggled.connect(self._emit_settings)
         self.layer_coverage_markers_checkbox = QCheckBox()
         self.layer_coverage_markers_checkbox.setChecked(True)
         self.layer_coverage_markers_checkbox.toggled.connect(self._emit_settings)
@@ -766,9 +776,12 @@ class PlotViewSettingsWidget(QScrollArea):
         form.addRow("Observed spectrum", self.layer_observed_checkbox)
         form.addRow("Reference preview", self.layer_preview_peak_positions_checkbox)
         form.addRow("Processed spectrum", self.layer_total_profile_checkbox)
-        form.addRow("Reference components", self.layer_phase_profiles_checkbox)
+        form.addRow("Reference profile", self.layer_phase_profiles_checkbox)
         form.addRow("Background", self.layer_background_checkbox)
-        form.addRow("Band tick marks", self.layer_phase_ticks_checkbox)
+        form.addRow("Reference peak lines", self.layer_phase_ticks_checkbox)
+        form.addRow("Reference bottom ticks", self.layer_reference_bottom_ticks_checkbox)
+        form.addRow("Mode labels", self.layer_reference_mode_labels_checkbox)
+        form.addRow("Vibration assignments", self.layer_reference_assignment_labels_checkbox)
         form.addRow("Assignment markers", self.layer_coverage_markers_checkbox)
         form.addRow("Band labels", self.layer_peak_labels_checkbox)
         form.addRow("Unassigned bands", self.layer_unknown_peaks_checkbox)
@@ -1007,6 +1020,9 @@ class PlotViewSettingsWidget(QScrollArea):
             layer_phase_profiles_visible=bool(self.layer_phase_profiles_checkbox.isChecked()),
             layer_background_visible=bool(self.layer_background_checkbox.isChecked()),
             layer_phase_ticks_visible=bool(self.layer_phase_ticks_checkbox.isChecked()),
+            layer_reference_bottom_ticks_visible=bool(self.layer_reference_bottom_ticks_checkbox.isChecked()),
+            layer_reference_mode_labels_visible=bool(self.layer_reference_mode_labels_checkbox.isChecked()),
+            layer_reference_assignment_labels_visible=bool(self.layer_reference_assignment_labels_checkbox.isChecked()),
             layer_coverage_markers_visible=bool(self.layer_coverage_markers_checkbox.isChecked()),
             layer_peak_labels_visible=bool(self.layer_peak_labels_checkbox.isChecked()),
             layer_unknown_peaks_visible=bool(self.layer_unknown_peaks_checkbox.isChecked()),
@@ -1119,6 +1135,15 @@ class PlotViewSettingsWidget(QScrollArea):
         self.layer_phase_profiles_checkbox.setChecked(settings.layer_phase_profiles_visible)
         self.layer_background_checkbox.setChecked(settings.layer_background_visible)
         self.layer_phase_ticks_checkbox.setChecked(settings.layer_phase_ticks_visible)
+        self.layer_reference_bottom_ticks_checkbox.setChecked(
+            getattr(settings, "layer_reference_bottom_ticks_visible", True)
+        )
+        self.layer_reference_mode_labels_checkbox.setChecked(
+            getattr(settings, "layer_reference_mode_labels_visible", True)
+        )
+        self.layer_reference_assignment_labels_checkbox.setChecked(
+            getattr(settings, "layer_reference_assignment_labels_visible", False)
+        )
         self.layer_coverage_markers_checkbox.setChecked(settings.layer_coverage_markers_visible)
         self.layer_peak_labels_checkbox.setChecked(settings.layer_peak_labels_visible)
         self.layer_unknown_peaks_checkbox.setChecked(settings.layer_unknown_peaks_visible)
