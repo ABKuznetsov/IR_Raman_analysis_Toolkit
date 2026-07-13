@@ -62,7 +62,7 @@ from vibrational_finder.band_detection import BandDetectionOptions, detect_bands
 from vibrational_finder.io import guess_spectrum_metadata, load_xy_spectrum, ramanchada2_available, supported_spectrum_extensions
 from vibrational_finder.matching import MatchingOptions, rank_candidates
 from vibrational_finder.metadata import APP_NAME, about_html
-from vibrational_finder.models import CompoundCandidate, ObservedSpectrum, ReferenceSpectrum, VibrationalMatchResult
+from vibrational_finder.models import CompoundCandidate, ObservedSpectrum, ReferenceBandSet, ReferenceSpectrum, SpectralBand, VibrationalMatchResult
 from vibrational_finder.preprocessing import PreprocessingOptions, preprocess_spectrum
 from vibrational_finder.services import (
     CifStructureSource,
@@ -587,8 +587,8 @@ class VibrationalFinderWindow(QMainWindow):
         self.project_controls.import_button.clicked.connect(self._show_import_dialog)
         self.project_controls.references_button.clicked.connect(self._create_reference)
         self.project_controls.new_button.clicked.connect(self._new_project)
-        self.project_controls.load_button.clicked.connect(self._not_implemented_project_files)
-        self.project_controls.save_button.clicked.connect(self._not_implemented_project_files)
+        self.project_controls.load_button.clicked.connect(self._load_project_file)
+        self.project_controls.save_button.clicked.connect(self._save_project_file)
         export_menu = QMenu(self.project_controls.export_button)
         export_menu.addAction("Active spectrum CSV...", self._export_active_spectrum)
         export_menu.addAction("Candidate table CSV...", self._export_candidate_table)
@@ -968,16 +968,19 @@ class VibrationalFinderWindow(QMainWindow):
             self._management_row(
                 "User reference library",
                 [
-                    ("Open list", self._manage_user_references),
-                    ("Create reference", self._create_reference),
-                    ("Clear", self._clear_user_libraries),
+                    ("Open list", self._manage_user_references, "open"),
+                    ("Create reference", self._create_reference, "create"),
+                    ("Clear", self._clear_user_libraries, "clear"),
                 ],
             )
         )
         layout.addWidget(
             self._management_row(
-                "User SQL line index",
-                [("Build / update", self._build_user_reference_band_index), ("Clear SQL", self._clear_user_reference_band_index)],
+                "SQL line indexes",
+                [
+                    ("Update all SQL indexes", self._build_all_band_indexes, "sql"),
+                    ("Clear all SQL indexes", self._clear_all_band_indexes, "clear"),
+                ],
             )
         )
         self.rruff_archive_combo = QComboBox()
@@ -986,35 +989,17 @@ class VibrationalFinderWindow(QMainWindow):
             self.rruff_archive_combo.addItem(f"{archive.label} ({cache_text})", archive.key)
         self._set_rruff_archive_combo_key("excellent_unoriented")
         layout.addWidget(self._rruff_archive_row())
-        layout.addWidget(self._management_row("RRUFF downloadable ZIP database", [("Download / update", self._update_rruff), ("Clear cache", self._clear_rruff)]))
-        layout.addWidget(
-            self._management_row(
-                "RRUFF SQL line index",
-                [("Build / update", self._build_rruff_band_index), ("Clear lines", self._clear_rruff_band_index)],
-            )
-        )
+        layout.addWidget(self._management_row("RRUFF downloadable ZIP database", [("Download / update", self._update_rruff, "download"), ("Clear cache", self._clear_rruff, "clear")]))
         layout.addWidget(
             self._management_row(
                 "Raman Open Database (CC0)",
-                [("Download / update", self._update_rod), ("Clear cache", self._clear_rod)],
-            )
-        )
-        layout.addWidget(
-            self._management_row(
-                "ROD SQL line index",
-                [("Build / update", self._build_rod_band_index), ("Clear lines", self._clear_rod_band_index)],
+                [("Download / update", self._update_rod, "download"), ("Clear cache", self._clear_rod, "clear")],
             )
         )
         layout.addWidget(
             self._management_row(
                 "JARVIS-DFT calculated spectra",
-                [("Download / update", self._update_jarvis), ("Clear cache", self._clear_jarvis)],
-            )
-        )
-        layout.addWidget(
-            self._management_row(
-                "JARVIS-DFT SQL line index",
-                [("Build / update", self._build_jarvis_band_index), ("Clear lines", self._clear_jarvis_band_index)],
+                [("Download / update", self._update_jarvis, "download"), ("Clear cache", self._clear_jarvis, "clear")],
             )
         )
         self.openspecy_library_combo = QComboBox()
@@ -1023,20 +1008,14 @@ class VibrationalFinderWindow(QMainWindow):
             self.openspecy_library_combo.addItem(f"{library.label} ({cache_text})", library.key)
         self._set_openspecy_library_combo_key("medoid_derivative")
         layout.addWidget(self._openspecy_library_row())
-        layout.addWidget(self._management_row("OpenSpecy downloadable RDS library", [("Download / update", self._update_openspecy), ("Clear cache", self._clear_openspecy)]))
-        layout.addWidget(
-            self._management_row(
-                "OpenSpecy SQL line index",
-                [("Build / update", self._build_openspecy_band_index), ("Clear lines", self._clear_openspecy_band_index)],
-            )
-        )
+        layout.addWidget(self._management_row("OpenSpecy downloadable RDS library", [("Download / update", self._update_openspecy, "download"), ("Clear cache", self._clear_openspecy, "clear")]))
         layout.addWidget(
             self._management_row(
                 "External spectrum search",
                 [
-                    ("Search SDBS", lambda: self._open_external_source("SDBS")),
-                    ("Search NIST", lambda: self._open_external_source("NIST")),
-                    ("Search SpectraBase", lambda: self._open_external_source("SpectraBase")),
+                    ("Search SDBS", lambda: self._open_external_source("SDBS"), "open"),
+                    ("Search NIST", lambda: self._open_external_source("NIST"), "open"),
+                    ("Search SpectraBase", lambda: self._open_external_source("SpectraBase"), "open"),
                 ],
             )
         )
@@ -1429,8 +1408,174 @@ class VibrationalFinderWindow(QMainWindow):
         self._redraw_plot()
         self._load_saved_user_references()
 
-    def _not_implemented_project_files(self) -> None:
-        QMessageBox.information(self, "Project files", "Project save/load will be ported from XRD Finder in the next step.")
+    def _project_file_filter(self) -> str:
+        return "IR/Raman projects (*.irraman.json *.json);;All files (*)"
+
+    def _save_project_file(self) -> None:
+        self._save_sample_card_fields()
+        self._save_active_spectrum_profile_state()
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save IR/Raman project",
+            str(Path(self._last_directory()) / "ir_raman_project.irraman.json"),
+            self._project_file_filter(),
+        )
+        if not path:
+            return
+        if not path.lower().endswith((".irraman.json", ".json")):
+            path += ".irraman.json"
+        payload = {
+            "format": "ir-raman-phase-finder-project",
+            "version": 1,
+            "active_spectrum_key": self._current_spectrum_profile_key(),
+            "visible_observed_paths": sorted(self.visible_observed_paths),
+            "spectra": {
+                "raman": [self._observed_spectrum_to_project(spectrum) for spectrum in self.raman_spectra],
+                "ftir": [self._observed_spectrum_to_project(spectrum) for spectrum in self.ftir_spectra],
+            },
+            "sample_metadata": self.sample_metadata,
+            "sample_bands": {
+                key: [self._spectral_band_to_project(band) for band in bands]
+                for key, bands in self.sample_bands.items()
+            },
+            "display": {
+                "mode": self.action_bar.display_mode.currentText(),
+                "normalize": self.action_bar.normalize_checkbox.isChecked(),
+                "laser_nm": self.action_bar.laser_wavelength_spin.value(),
+            },
+        }
+        try:
+            Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            QMessageBox.warning(self, "Save project", f"Could not save project:\n{exc}")
+            return
+        self.statusBar().showMessage(f"Project saved: {path}", 8000)
+
+    def _load_project_file(self) -> None:
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Load IR/Raman project",
+            "",
+            self._project_file_filter(),
+        )
+        if not path:
+            return
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+            if payload.get("format") != "ir-raman-phase-finder-project":
+                raise ValueError("This is not an IR/Raman Phase Finder project file.")
+            spectra = payload.get("spectra") or {}
+            raman = [self._observed_spectrum_from_project(item) for item in spectra.get("raman") or []]
+            ftir = [self._observed_spectrum_from_project(item) for item in spectra.get("ftir") or []]
+            sample_bands = {
+                str(key): [self._spectral_band_from_project(item) for item in value or []]
+                for key, value in dict(payload.get("sample_bands") or {}).items()
+            }
+        except Exception as exc:
+            QMessageBox.warning(self, "Load project", f"Could not load project:\n{exc}")
+            return
+
+        self._new_project()
+        self.raman_spectra = raman
+        self.ftir_spectra = ftir
+        self.sample_metadata = {
+            str(key): {str(field): str(value) for field, value in dict(metadata).items()}
+            for key, metadata in dict(payload.get("sample_metadata") or {}).items()
+        }
+        self.sample_bands = sample_bands
+        self.visible_observed_paths = set(str(value) for value in payload.get("visible_observed_paths") or [])
+        for spectrum in [*self.raman_spectra, *self.ftir_spectra]:
+            key = self._spectrum_visibility_key(spectrum)
+            self._original_observed[spectrum.source_path] = self._copy_observed_spectrum(spectrum) or spectrum
+            self.sample_metadata.setdefault(
+                key,
+                {
+                    "name": spectrum.name,
+                    "source_path": spectrum.source_path,
+                    "method": spectrum.kind.value.upper(),
+                    "laser_nm": "",
+                    "orientation": "",
+                    "polarization": "",
+                    "instrument": "",
+                    "notes": "",
+                },
+            )
+            self.sample_bands.setdefault(key, detect_bands(spectrum, BandDetectionOptions(backend="auto", fit_peaks=False)))
+        display = payload.get("display") or {}
+        mode_index = self.action_bar.display_mode.findText(str(display.get("mode") or "One"))
+        if mode_index >= 0:
+            self.action_bar.display_mode.setCurrentIndex(mode_index)
+        self.action_bar.normalize_checkbox.setChecked(bool(display.get("normalize", self.action_bar.normalize_checkbox.isChecked())))
+        try:
+            self.action_bar.laser_wavelength_spin.setValue(float(display.get("laser_nm", self.action_bar.laser_wavelength_spin.value())))
+        except (TypeError, ValueError):
+            pass
+
+        active_key = str(payload.get("active_spectrum_key") or "")
+        all_spectra = [*self.raman_spectra, *self.ftir_spectra]
+        self.active_spectrum = next(
+            (spectrum for spectrum in all_spectra if self._spectrum_visibility_key(spectrum) == active_key),
+            all_spectra[0] if all_spectra else None,
+        )
+        if self.active_spectrum is not None and not self.visible_observed_paths:
+            self.visible_observed_paths.add(self._spectrum_visibility_key(self.active_spectrum))
+        self.active_profile_spectrum_key = None
+        self._activate_spectrum_profile_state(self.active_spectrum)
+        self._refresh_project_tree()
+        self._refresh_sample_card()
+        self._set_card(None)
+        self._redraw_plot()
+        self.statusBar().showMessage(f"Project loaded: {path}", 8000)
+
+    def _observed_spectrum_to_project(self, spectrum: ObservedSpectrum) -> dict:
+        return {
+            "x": [float(value) for value in spectrum.x],
+            "y": [float(value) for value in spectrum.y],
+            "kind": spectrum.kind.value,
+            "name": spectrum.name,
+            "source_path": spectrum.source_path,
+            "x_unit": spectrum.x_unit,
+            "y_unit": spectrum.y_unit,
+        }
+
+    def _observed_spectrum_from_project(self, payload: dict) -> ObservedSpectrum:
+        return ObservedSpectrum(
+            x=[float(value) for value in payload.get("x") or []],
+            y=[float(value) for value in payload.get("y") or []],
+            kind=SignalKind(str(payload.get("kind") or SignalKind.UNKNOWN.value)),
+            name=str(payload.get("name") or ""),
+            source_path=str(payload.get("source_path") or ""),
+            x_unit=str(payload.get("x_unit") or "cm-1"),
+            y_unit=str(payload.get("y_unit") or "a.u."),
+        )
+
+    def _spectral_band_to_project(self, band: SpectralBand) -> dict:
+        return {
+            "position": float(band.position),
+            "intensity": float(band.intensity),
+            "width": float(band.width),
+            "mode": band.mode,
+            "assignment": band.assignment,
+            "symmetry": band.symmetry,
+            "polarization": band.polarization,
+            "orientation": band.orientation,
+            "source_comment": band.source_comment,
+            "confidence": float(band.confidence),
+        }
+
+    def _spectral_band_from_project(self, payload: dict) -> SpectralBand:
+        return SpectralBand(
+            position=float(payload.get("position") or 0.0),
+            intensity=float(payload.get("intensity") or 0.0),
+            width=float(payload.get("width") or 0.0),
+            mode=str(payload.get("mode") or ""),
+            assignment=str(payload.get("assignment") or ""),
+            symmetry=str(payload.get("symmetry") or ""),
+            polarization=str(payload.get("polarization") or ""),
+            orientation=str(payload.get("orientation") or ""),
+            source_comment=str(payload.get("source_comment") or ""),
+            confidence=float(payload.get("confidence") or 1.0),
+        )
 
     def dragEnterEvent(self, event) -> None:  # type: ignore[override]
         if self._drop_paths(event):
@@ -1582,12 +1727,14 @@ class VibrationalFinderWindow(QMainWindow):
         )
         if not path:
             return
-        source_path = Path(path)
+        self._load_reference_template_path(Path(path), kind)
+
+    def _load_reference_template_path(self, source_path: Path, kind: SignalKind) -> bool:
         try:
             payload = json.loads(source_path.read_text(encoding="utf-8"))
         except Exception as exc:
             QMessageBox.warning(self, "Template import failed", str(exc))
-            return
+            return False
         payload_kind = str(payload.get("kind") or "").strip().lower()
         if payload_kind in {"ir", "infrared"}:
             payload_kind = "ftir"
@@ -1603,24 +1750,35 @@ class VibrationalFinderWindow(QMainWindow):
             write_editable_reference(target, payload)
         except Exception as exc:
             QMessageBox.warning(self, "Template import failed", str(exc))
-            return
+            return False
         self._replace_editable_reference_source()
         if "User Library" in getattr(self, "source_checks", {}):
             self.source_checks["User Library"].setChecked(True)
         if self.active_spectrum is not None:
             self._search_active_spectrum()
         self.statusBar().showMessage(f"Loaded reference template into user library: {target.name}", 8000)
+        return True
 
     def _load_reference_spectrum_files(self, kind: SignalKind) -> None:
-        title = "Load Raman reference spectra" if kind == SignalKind.RAMAN else "Load FTIR reference spectra"
-        paths, _ = QFileDialog.getOpenFileNames(self, title, "", SPECTRUM_FILE_FILTER)
+        title = "Load Raman reference spectra/templates" if kind == SignalKind.RAMAN else "Load FTIR reference spectra/templates"
+        file_filter = (
+            f"Reference spectra/templates ({SPECTRUM_GLOBS} *.vsref *.json);;"
+            "Reference templates (*.vsref *.json);;"
+            f"{SPECTRUM_FILE_FILTER}"
+        )
+        paths, _ = QFileDialog.getOpenFileNames(self, title, "", file_filter)
         if not paths:
             return
         loaded = 0
+        loaded_templates = 0
         failures: list[str] = []
         for path in paths:
             source_path = Path(path)
             try:
+                if source_path.suffix.lower() in {".json", ".vsref"}:
+                    if self._load_reference_template_path(source_path, kind):
+                        loaded_templates += 1
+                    continue
                 spectrum = load_xy_spectrum(source_path, kind=kind, name=source_path.stem, reference=True)
                 bands = detect_bands(
                     spectrum,
@@ -1665,6 +1823,8 @@ class VibrationalFinderWindow(QMainWindow):
             if self.active_spectrum is not None:
                 self._search_active_spectrum()
             self.statusBar().showMessage(f"Loaded {loaded} reference spectrum file(s).", 8000)
+        elif loaded_templates:
+            self.statusBar().showMessage(f"Loaded {loaded_templates} reference template file(s).", 8000)
         if failures:
             QMessageBox.warning(self, "Reference import", "Some reference spectra could not be imported:\n\n" + "\n".join(failures[:8]))
 
@@ -2731,6 +2891,7 @@ class VibrationalFinderWindow(QMainWindow):
         kind, index = data
         try:
             if kind == "raman" and 0 <= index < len(self.raman_spectra):
+                self._save_sample_card_fields()
                 self._save_active_spectrum_profile_state()
                 self.active_spectrum = self.raman_spectra[index]
                 self._current_preview_result = None
@@ -2740,6 +2901,7 @@ class VibrationalFinderWindow(QMainWindow):
                 self._refresh_sample_card()
                 self._redraw_plot()
             elif kind == "ftir" and 0 <= index < len(self.ftir_spectra):
+                self._save_sample_card_fields()
                 self._save_active_spectrum_profile_state()
                 self.active_spectrum = self.ftir_spectra[index]
                 self._current_preview_result = None
@@ -3683,22 +3845,31 @@ class VibrationalFinderWindow(QMainWindow):
         if self._updating_card_tables or self._current_preview_result is None:
             return
         result = self._current_preview_result
+        reference_changed = False
         if not result.observed_bands and 0 <= row < len(result.reference_bands):
             band = result.reference_bands[row]
             item = self.band_table.item(row, column)
             text = item.text().strip() if item is not None else ""
             if column == 1:
                 band.position = self._editable_number(text, band.position)
+                reference_changed = True
             elif column == 3:
                 band.intensity = self._editable_number(text, band.intensity)
+                reference_changed = True
             elif column == 4:
                 band.width = self._editable_number(text, band.width)
+                reference_changed = True
             elif column == 5:
                 band.mode = text
+                reference_changed = True
             elif column == 6:
                 band.symmetry = text
+                reference_changed = True
             elif column == 7:
                 band.assignment = text
+                reference_changed = True
+            if reference_changed:
+                self._save_current_user_reference_card()
             return
         if not (0 <= row < len(result.observed_bands)):
             return
@@ -3717,16 +3888,90 @@ class VibrationalFinderWindow(QMainWindow):
             return
         if column == 1:
             nearest.position = self._editable_number(text, nearest.position)
+            reference_changed = True
         elif column == 3:
             observed.intensity = self._editable_number(text, observed.intensity)
         elif column == 4:
             nearest.width = self._editable_number(text, nearest.width)
+            reference_changed = True
         elif column == 5:
             nearest.mode = text
+            reference_changed = True
         elif column == 6:
             nearest.symmetry = text
+            reference_changed = True
         elif column == 7:
             nearest.assignment = text
+            reference_changed = True
+        if reference_changed:
+            self._save_current_user_reference_card()
+
+    def _current_user_reference_path(self) -> Path | None:
+        result = self._current_preview_result
+        if result is None or result.candidate.source != EditableReferenceSource.name:
+            return None
+        raw_path = str(result.candidate.metadata.get("path", "") or "")
+        if not raw_path:
+            return None
+        path = Path(raw_path)
+        if path.suffix.lower() != ".vsref":
+            return None
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return None
+        user_root = self._user_reference_root().resolve()
+        if user_root not in resolved.parents and resolved.parent != user_root:
+            return None
+        return resolved
+
+    def _save_current_user_reference_card(self) -> None:
+        result = self._current_preview_result
+        path = self._current_user_reference_path()
+        if result is None or path is None:
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not read reference card: {exc}", 6000)
+            return
+        payload["bands"] = [self._reference_band_to_payload(band) for band in result.reference_bands]
+        try:
+            write_editable_reference(path, payload)
+            band_set = ReferenceBandSet(
+                bands=list(result.reference_bands),
+                origin=str(result.candidate.metadata.get("origin") or "experimental"),
+                extraction_method="manual/reference-card",
+            )
+            result.candidate.band_set = band_set
+            if result.candidate.reference is not None:
+                result.candidate.reference.band_set = band_set
+            if result.aligned_reference is not None:
+                result.aligned_reference.band_set = band_set
+            self._user_reference_cache().upsert_band_set(
+                result.candidate.key,
+                band_set,
+                USER_REFERENCE_BAND_RECIPE_VERSION,
+            )
+            self._update_database_table()
+            self.statusBar().showMessage(f"Reference card saved: {path.name}", 3000)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not save reference card: {exc}", 6000)
+
+    def _reference_band_to_payload(self, band: SpectralBand) -> dict[str, object]:
+        return {
+            "position_cm1": float(band.position),
+            "intensity": float(band.intensity),
+            "fwhm_cm1": float(band.width),
+            "mode": band.mode,
+            "symmetry": band.symmetry,
+            "assignment": band.assignment,
+            "polarization": band.polarization,
+            "orientation": band.orientation,
+            "confidence": "manual",
+            "confidence_value": float(band.confidence),
+            "comment": band.source_comment,
+        }
 
     def _load_reference_record(self, record: CandidateRecord) -> ReferenceSpectrum:
         if record.source == self.rruff_source.name:
@@ -3904,17 +4149,31 @@ class VibrationalFinderWindow(QMainWindow):
             table.setColumnWidth(column, 112)
         return table
 
-    def _management_row(self, label_text: str, actions: list[tuple[str, object]]) -> QWidget:
+    def _management_button_style(self, role: str) -> str:
+        colors = {
+            "download": ("#0b8043", "#35a96c"),
+            "clear": ("#9f2424", "#d45b5b"),
+            "sql": ("#7b4fb3", "#a782d8"),
+            "create": ("#2367a5", "#5a9bd8"),
+            "open": ("#5f6368", "#8a8d91"),
+        }
+        background, border = colors.get(role, ("#2367a5", "#5a9bd8"))
+        return _glass_button_style(background, border)
+
+    def _management_row(self, label_text: str, actions: list[tuple[str, object] | tuple[str, object, str]]) -> QWidget:
         row = QWidget()
         layout = QGridLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         title = QLabel(label_text)
         title.setStyleSheet("font-weight: 600;")
         layout.addWidget(title, 0, 0, 1, 2)
-        for index, (button_text, callback) in enumerate(actions):
+        for index, action in enumerate(actions):
+            button_text = action[0]
+            callback = action[1]
+            role = action[2] if len(action) > 2 else "default"
             button = QPushButton(button_text)
             button.setMinimumHeight(28)
-            button.setStyleSheet(_glass_button_style("#2367a5", "#5a9bd8"))
+            button.setStyleSheet(self._management_button_style(str(role)))
             button.clicked.connect(callback)
             layout.addWidget(button, 1 + index // 2, index % 2)
         return row
@@ -4020,6 +4279,78 @@ class VibrationalFinderWindow(QMainWindow):
         cache.clear_source(EditableReferenceSource.name)
         self._update_database_table()
         self.statusBar().showMessage("User SQL line index cleared.", 6000)
+
+    def _build_all_band_indexes(self) -> None:
+        def task() -> list[str]:
+            messages: list[str] = []
+            root = self._user_reference_root()
+            if any(root.glob("*.vsref")):
+                cache = self._user_reference_cache()
+                cache.clear_source(EditableReferenceSource.name)
+                source = EditableReferenceSource(root, cache_root=root)
+                messages.append(
+                    f"User: {source.indexed_record_count()} records, {source.indexed_band_count()} bands"
+                )
+            else:
+                messages.append("User: skipped, no .vsref references")
+
+            try:
+                indexed, skipped = self.rruff_source.build_band_index()
+                messages.append(f"RRUFF: {indexed} new, {skipped} skipped")
+            except Exception as exc:
+                messages.append(f"RRUFF: skipped, {exc}")
+
+            if self.rod_source.indexed_count() > 0:
+                try:
+                    indexed, skipped = self.rod_source.build_band_index()
+                    messages.append(f"ROD: {indexed} new, {skipped} skipped")
+                except Exception as exc:
+                    messages.append(f"ROD: skipped, {exc}")
+            else:
+                messages.append("ROD: skipped, download database first")
+
+            if self.jarvis_source.indexed_count() > 0:
+                try:
+                    indexed, skipped = self.jarvis_source.build_band_index()
+                    messages.append(f"JARVIS-DFT: {indexed} new, {skipped} skipped")
+                except Exception as exc:
+                    messages.append(f"JARVIS-DFT: skipped, {exc}")
+            else:
+                messages.append("JARVIS-DFT: skipped, download database first")
+
+            if self.openspecy_source.search(SourceQuery()):
+                try:
+                    indexed, skipped = self.openspecy_source.build_band_index()
+                    messages.append(f"OpenSpecy: {indexed} new, {skipped} skipped")
+                except Exception as exc:
+                    messages.append(f"OpenSpecy: skipped, {exc}")
+            else:
+                messages.append("OpenSpecy: skipped, download library first")
+
+            return messages
+
+        def success(messages: list[str]) -> None:
+            self._replace_editable_reference_source()
+            self._update_database_table()
+            QMessageBox.information(self, "SQL line indexes updated", "\n".join(messages))
+
+        self._run_background_task(
+            "Update SQL line indexes",
+            "Updating SQL line indexes for all available databases...",
+            task,
+            success,
+            lambda message, _details: QMessageBox.warning(self, "SQL index update failed", message),
+        )
+
+    def _clear_all_band_indexes(self) -> None:
+        cache = self._user_reference_cache()
+        cache.clear_source(EditableReferenceSource.name)
+        self.rruff_source.clear_band_index()
+        self.rod_source.clear_band_index()
+        self.jarvis_source.clear_band_index()
+        self.openspecy_source.clear_band_index()
+        self._update_database_table()
+        self.statusBar().showMessage("All SQL line indexes cleared.", 6000)
 
     def _run_background_task(self, title: str, label: str, task, success, failure=None) -> None:
         progress = QProgressDialog(label, None, 0, 0, self)

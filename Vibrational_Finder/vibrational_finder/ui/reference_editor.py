@@ -492,8 +492,16 @@ class ReferenceEditorDialog(QDialog):
     def _add_spectrum(self, kind: SignalKind | None = None) -> None:
         active_kind = kind or self._current_kind()
         self._set_kind(active_kind)
-        path, _ = QFileDialog.getOpenFileName(self, "Add reference spectrum", "", _spectrum_file_filter())
+        globs = " ".join(f"*{extension}" for extension in supported_spectrum_extensions())
+        file_filter = (
+            f"Reference spectra/templates ({globs} *.vsref *.json);;"
+            f"{_spectrum_file_filter()}"
+        )
+        path, _ = QFileDialog.getOpenFileName(self, "Add reference spectrum or template", "", file_filter)
         if not path:
+            return
+        if Path(path).suffix.lower() in {".json", ".vsref"}:
+            self._load_template(active_kind, path=path)
             return
         if Path(path).suffix.lower() == ".cif":
             QMessageBox.information(
@@ -833,10 +841,11 @@ class ReferenceEditorDialog(QDialog):
         self.band_table.blockSignals(blocked)
         self._redraw_profile()
 
-    def _load_template(self, kind: SignalKind | None = None) -> None:
+    def _load_template(self, kind: SignalKind | None = None, *, path: str | None = None) -> None:
         if kind is not None:
             self._set_kind(kind)
-        path, _ = QFileDialog.getOpenFileName(self, "Load reference template", "", "Reference templates (*.vsref *.json);;All files (*)")
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Load reference template", "", "Reference templates (*.vsref *.json);;All files (*)")
         if not path:
             return
         try:
@@ -1057,6 +1066,33 @@ class ReferenceEditorDialog(QDialog):
         except ValueError:
             return None
 
+    def _intensity_number_or_label(self, text: str):
+        value = self._number_or_none(text)
+        if value is not None:
+            return value
+        normalized = text.strip().lower().replace("_", " ").replace("-", " ")
+        if not normalized:
+            return None
+        qualitative = {
+            "very weak": 0.1,
+            "weak": 0.25,
+            "medium": 0.5,
+            "moderate": 0.5,
+            "strong": 0.75,
+            "very strong": 1.0,
+            "vs": 1.0,
+            "s": 0.75,
+            "m": 0.5,
+            "w": 0.25,
+            "vw": 0.1,
+        }
+        if normalized in qualitative:
+            return qualitative[normalized]
+        for label, mapped in qualitative.items():
+            if label in normalized:
+                return mapped
+        return None
+
     def payload(self) -> dict:
         metadata = {key: field.text().strip() for key, field in self.fields.items() if field.text().strip()}
         metadata["origin"] = str(self.origin_combo.currentData() or "experimental")
@@ -1071,8 +1107,12 @@ class ReferenceEditorDialog(QDialog):
             if not self._cell(row, 0):
                 continue
             item = {key: self._cell(row, column) for column, key in enumerate(keys)}
-            for key in ("position_cm1", "intensity", "fwhm_cm1"):
-                item[key] = self._number(str(item[key]))
+            position = self._number_or_none(str(item["position_cm1"]))
+            if position is None:
+                continue
+            item["position_cm1"] = position
+            item["intensity"] = self._intensity_number_or_label(str(item["intensity"]))
+            item["fwhm_cm1"] = self._number_or_none(str(item["fwhm_cm1"]))
             bands.append(item)
         profile = None
         if self.profile is not None and self.profile.x and self.profile.y:
