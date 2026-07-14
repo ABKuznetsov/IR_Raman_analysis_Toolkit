@@ -5,16 +5,16 @@
   "apps": {
     "ir_raman_phase_finder": {
       "name": "IR/Raman Phase Finder",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "entry_module": "vibrational_finder.apps.finder_gui",
       "folder": "Vibrational_Finder",
       "requirements": "pyproject.toml",
       "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/latest",
       "manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/manifest.json",
       "update_manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/updates/ir_raman_phase_finder.json",
-      "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
+      "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.8/IR_Raman_analysis_Toolkit_Setup_0.1.8.exe",
       "macos_installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
-      "installer_sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530",
+      "installer_sha256": "72ad2549d4fdf793b201d3dbbe590920d8f65d2eead67d6b8a89d1d7bc4ac96b",
       "macos_installer_sha256": "c02ba923eda3dcb3b5ed7ef087606efc41e7a7ab49e2fa1af6f36dcbb548a660"
     }
   }

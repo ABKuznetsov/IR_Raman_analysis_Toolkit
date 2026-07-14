@@ -264,7 +264,7 @@ function Invoke-UpdateDownload {
 
     try {
         Write-LauncherLog "Downloading update with Invoke-WebRequest: $Url"
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 10 -Headers @{ "User-Agent" = "IR-Raman-Phase-Finder-Updater" }
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 900 -MaximumRedirection 10 -Headers @{ "User-Agent" = "IR-Raman-Phase-Finder-Updater" }
         if ((Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1024)) { return }
         $errors.Add("Invoke-WebRequest produced an empty or incomplete file.") | Out-Null
     } catch {
@@ -286,10 +286,18 @@ function Invoke-UpdateDownload {
         try {
             Write-LauncherLog "Downloading update with curl.exe: $Url"
             Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-            $curlLog = Join-Path ([System.IO.Path]::GetDirectoryName($OutFile)) "curl_update.log"
-            $curlProcess = Start-Process -FilePath $curl.Source -ArgumentList @("-L", "--fail", "--retry", "3", "--connect-timeout", "30", "--max-time", "300", "-A", "IR-Raman-Phase-Finder-Updater", "-o", $OutFile, $Url) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $curlLog -RedirectStandardError $curlLog
+            $downloadFolder = [System.IO.Path]::GetDirectoryName($OutFile)
+            $curlOutLog = Join-Path $downloadFolder "curl_update.out.log"
+            $curlErrLog = Join-Path $downloadFolder "curl_update.err.log"
+            $curlProcess = Start-Process -FilePath $curl.Source -ArgumentList @("-L", "--fail", "--retry", "3", "--connect-timeout", "45", "--max-time", "900", "-A", "IR-Raman-Phase-Finder-Updater", "-o", $OutFile, $Url) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $curlOutLog -RedirectStandardError $curlErrLog
             if ($curlProcess.ExitCode -eq 0 -and (Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1024)) { return }
             $errors.Add("curl.exe exit code: " + $curlProcess.ExitCode) | Out-Null
+            if (Test-Path -LiteralPath $curlErrLog) {
+                $curlErrorText = (Get-Content -LiteralPath $curlErrLog -Raw -ErrorAction SilentlyContinue)
+                if ($curlErrorText) {
+                    $errors.Add("curl.exe details: " + $curlErrorText.Trim()) | Out-Null
+                }
+            }
         } catch {
             $errors.Add("curl.exe: " + $_.Exception.Message) | Out-Null
         }
