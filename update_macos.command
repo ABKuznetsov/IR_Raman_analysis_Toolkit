@@ -59,6 +59,7 @@ UPDATE_INFO="$("$PYTHON" - "$APP_ROOT" <<'PY'
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -93,6 +94,26 @@ def newer(left: str, right: str) -> bool:
         return str(av) > str(bv)
     return False
 
+def fetch_json(url: str) -> dict:
+    request = Request(str(url), headers={"User-Agent": "IR-Raman-Phase-Finder-macOS-Updater"})
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8-sig"))
+    except Exception as urllib_error:
+        curl = "/usr/bin/curl"
+        if not Path(curl).exists():
+            curl = "curl"
+        result = subprocess.run(
+            [curl, "-L", "--fail", "--silent", "--show-error", "--max-time", "20", str(url)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"urllib failed: {urllib_error}; curl failed: {detail}")
+        return json.loads(result.stdout.decode("utf-8-sig"))
+
 manifest = load(manifest_path)
 app_json = load(app_json_path)
 local_version = str(app_json.get("version") or "0.0.0")
@@ -104,9 +125,7 @@ if not remote_url:
     raise SystemExit(0)
 
 try:
-    request = Request(str(remote_url), headers={"User-Agent": "IR-Raman-Phase-Finder-macOS-Updater"})
-    with urlopen(request, timeout=20) as response:
-        remote = json.loads(response.read().decode("utf-8-sig"))
+    remote = fetch_json(str(remote_url))
 except Exception as exc:
     print(f"error\tCould not read update manifest: {exc}\t{release_url}")
     raise SystemExit(0)

@@ -16,12 +16,12 @@
       "size_bytes": 3890715
     },
     {
-      "name": "IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
+      "name": "IR_Raman_Phase_Finder_macOS_0.1.8.pkg",
       "type": "installer",
       "platform": "macos",
-      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
-      "sha256": "c02ba923eda3dcb3b5ed7ef087606efc41e7a7ab49e2fa1af6f36dcbb548a660",
-      "size_bytes": 4464589
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.8/IR_Raman_Phase_Finder_macOS_0.1.8.pkg",
+      "sha256": "ab4a008cab5e2db73b23f56b60e653bc4f1e32d4a2031d176c076209f947df4b",
+      "size_bytes": 4464952
     }
   ],
   "summary": [
@@ -40,10 +40,11 @@
     "Separate reference profile, reference peak-line and bottom tick visibility.",
     "Add right-click toggles for reference mode labels and vibration assignment labels.",
     "Show reference mode and vibration assignment labels for previewed user references when metadata is available.",
-    "Fix automatic update download fallback by separating curl stdout and stderr logs."
+    "Fix automatic update download fallback by separating curl stdout and stderr logs.",
+    "Fix automatic update checks on macOS by falling back to system curl when Python certificate verification fails."
   ],
   "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.8/IR_Raman_analysis_Toolkit_Setup_0.1.8.exe",
   "installer_sha256": "72ad2549d4fdf793b201d3dbbe590920d8f65d2eead67d6b8a89d1d7bc4ac96b",
-  "macos_installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
-  "macos_installer_sha256": "c02ba923eda3dcb3b5ed7ef087606efc41e7a7ab49e2fa1af6f36dcbb548a660"
+  "macos_installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.8/IR_Raman_Phase_Finder_macOS_0.1.8.pkg",
+  "macos_installer_sha256": "ab4a008cab5e2db73b23f56b60e653bc4f1e32d4a2031d176c076209f947df4b"
 }

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -55,29 +56,63 @@ def load_json(path: Path) -> dict:
 
 
 def fetch_json(url: str, timeout: float = 8.0) -> dict:
-    request = Request(url, headers={"User-Agent": "IR-Raman-Phase-Finder-macOS-Updater"})
-    with urlopen(request, timeout=timeout) as response:
-        data = response.read()
+    data = fetch_url_bytes(url, timeout=timeout)
     return json.loads(data.decode("utf-8-sig"))
 
 
-def download_file(url: str, target: Path, expected_sha256: str = "") -> None:
+def fetch_url_bytes(url: str, timeout: float = 8.0) -> bytes:
     request = Request(url, headers={"User-Agent": "IR-Raman-Phase-Finder-macOS-Updater"})
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except Exception as urllib_error:
+        curl = shutil.which("curl") or "/usr/bin/curl"
+        result = subprocess.run(
+            [curl, "-L", "--fail", "--silent", "--show-error", "--max-time", str(int(max(timeout, 1))), url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"urllib failed: {urllib_error}; curl failed: {detail}")
+        return result.stdout
+
+
+def download_file(url: str, target: Path, expected_sha256: str = "") -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256()
-    with urlopen(request, timeout=300) as response, target.open("wb") as handle:
-        while True:
-            chunk = response.read(1024 * 512)
-            if not chunk:
-                break
-            handle.write(chunk)
-            digest.update(chunk)
+    try:
+        request = Request(url, headers={"User-Agent": "IR-Raman-Phase-Finder-macOS-Updater"})
+        with urlopen(request, timeout=300) as response, target.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 512)
+                if not chunk:
+                    break
+                handle.write(chunk)
+    except Exception:
+        target.unlink(missing_ok=True)
+        curl = shutil.which("curl") or "/usr/bin/curl"
+        result = subprocess.run(
+            [curl, "-L", "--fail", "--retry", "3", "--connect-timeout", "30", "-o", str(target), url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode:
+            target.unlink(missing_ok=True)
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"Could not download installer with curl: {detail}")
     if target.stat().st_size < 1024:
         target.unlink(missing_ok=True)
         raise RuntimeError("Downloaded installer is empty or incomplete.")
-    if expected_sha256 and digest.hexdigest().lower() != expected_sha256.lower():
-        target.unlink(missing_ok=True)
-        raise RuntimeError("Downloaded installer checksum does not match the manifest.")
+    if expected_sha256:
+        digest = hashlib.sha256()
+        with target.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 512), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != expected_sha256.lower():
+            target.unlink(missing_ok=True)
+            raise RuntimeError("Downloaded installer checksum does not match the manifest.")
 
 
 def find_macos_asset(remote_app: dict) -> tuple[str, str]:
