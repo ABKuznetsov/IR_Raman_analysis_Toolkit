@@ -14,6 +14,14 @@
       "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
       "sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530",
       "size_bytes": 3890502
+    },
+    {
+      "name": "IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
+      "type": "installer",
+      "platform": "macos",
+      "url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
+      "sha256": "c02ba923eda3dcb3b5ed7ef087606efc41e7a7ab49e2fa1af6f36dcbb548a660",
+      "size_bytes": 4464589
     }
   ],
   "summary": [
@@ -34,5 +42,7 @@
     "Show reference mode and vibration assignment labels for previewed user references when metadata is available."
   ],
   "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_analysis_Toolkit_Setup_0.1.7.exe",
-  "installer_sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530"
+  "installer_sha256": "e664d73bd4af06795b7e6aa8eff912c4d0acd0d23332b4ca9e66b8e0a94fe530",
+  "macos_installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v0.1.7/IR_Raman_Phase_Finder_macOS_0.1.7.pkg",
+  "macos_installer_sha256": "c02ba923eda3dcb3b5ed7ef087606efc41e7a7ab49e2fa1af6f36dcbb548a660"
 }
