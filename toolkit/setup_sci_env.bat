@@ -1,5 +1,9 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+if /i not "%~1"=="--worker" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0setup_sci_env.ps1"
+    exit /b !errorlevel!
+)
 set "APP_ROOT=%~dp0.."
 for %%I in ("%APP_ROOT%") do set "APP_ROOT=%%~fI"
 
@@ -34,6 +38,14 @@ echo IR/Raman app data root: %APP_DATA_ROOT%>> "%LOG_FILE%"
 call :check_windows_version
 if errorlevel 1 exit /b 1
 
+if exist "%ENV_ROOT%\Scripts\python.exe" (
+    "%ENV_ROOT%\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3,11) <= sys.version_info[:2] < (3,13) else 1)" >nul 2>nul
+    if errorlevel 1 (
+        echo ERROR: Existing Sci Python cannot be launched. Environment was preserved.
+        goto failed
+    )
+    goto environment_ready
+)
 call :find_python
 if errorlevel 1 (
     call :install_python
@@ -66,14 +78,22 @@ if not exist "%ENV_ROOT%\Scripts\python.exe" (
     exit /b 1
 )
 
-echo Upgrading pip and build tools...
-echo Upgrading pip and build tools...>> "%LOG_FILE%"
-call "%ENV_ROOT%\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 60 --retries 3 --prefer-binary --upgrade pip setuptools wheel >> "%LOG_FILE%" 2>&1
-if errorlevel 1 goto failed
+:environment_ready
+echo Checking pip and build tools...
+"%ENV_ROOT%\Scripts\python.exe" -m pip --version
+if errorlevel 1 (
+    "%ENV_ROOT%\Scripts\python.exe" -m ensurepip --upgrade
+    if errorlevel 1 goto failed
+)
+"%ENV_ROOT%\Scripts\python.exe" -c "import importlib.metadata as m; assert int(m.version('setuptools').split('.')[0]) >= 68; m.version('wheel')" >nul 2>nul
+if errorlevel 1 (
+    "%ENV_ROOT%\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 300 --retries 10 "setuptools>=68" wheel
+    if errorlevel 1 goto failed
+)
 
 echo Installing IR/Raman Phase Finder requirements...
 echo Installing IR/Raman Phase Finder requirements...>> "%LOG_FILE%"
-call "%ENV_ROOT%\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 60 --retries 3 --prefer-binary -e "%APP_ROOT%[formats]" >> "%LOG_FILE%" 2>&1
+call "%ENV_ROOT%\Scripts\python.exe" -u "%APP_ROOT%\toolkit\install_sci_requirements.py" --root "%APP_ROOT%"
 if errorlevel 1 goto failed
 
 echo Writing launchers...>> "%LOG_FILE%"
@@ -126,18 +146,46 @@ exit /b 0
 :find_python
 set "PYTHON_CMD="
 set "PYTHON_TEST=import sys; raise SystemExit(0 if sys.version_info >= (3, 11) and sys.version_info < (3, 13) else 1)"
+for %%V in (Python311 Python312) do (
+    for %%D in ("%LocalAppData%\Programs\Python\%%V" "%ProgramFiles%\%%V") do (
+        if exist "%%~D\python.exe" (
+            "%%~D\python.exe" -c "%PYTHON_TEST%" >nul 2>nul
+            if not errorlevel 1 (
+                set PYTHON_CMD="%%~D\python.exe"
+                exit /b 0
+            )
+        )
+    )
+)
 if exist "%LocalAppData%\Programs\Python\Python311\python.exe" (
     "%LocalAppData%\Programs\Python\Python311\python.exe" -c "%PYTHON_TEST%" >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=""%LocalAppData%\Programs\Python\Python311\python.exe"""& exit /b 0
+    if not errorlevel 1 (
+        set PYTHON_CMD="%LocalAppData%\Programs\Python\Python311\python.exe"
+        exit /b 0
+    )
 )
 if exist "%ProgramFiles%\Python311\python.exe" (
     "%ProgramFiles%\Python311\python.exe" -c "%PYTHON_TEST%" >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=""%ProgramFiles%\Python311\python.exe"""& exit /b 0
+    if not errorlevel 1 (
+        set PYTHON_CMD="%ProgramFiles%\Python311\python.exe"
+        exit /b 0
+    )
 )
 py -3.11 -c "%PYTHON_TEST%" >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=py -3.11"& exit /b 0
+if not errorlevel 1 (
+    set "PYTHON_CMD=py -3.11"
+    exit /b 0
+)
+py -3.12 -c "%PYTHON_TEST%" >nul 2>nul
+if not errorlevel 1 (
+    set "PYTHON_CMD=py -3.12"
+    exit /b 0
+)
 python -c "%PYTHON_TEST%" >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=python"& exit /b 0
+if not errorlevel 1 (
+    set "PYTHON_CMD=python"
+    exit /b 0
+)
 exit /b 1
 
 :install_python
