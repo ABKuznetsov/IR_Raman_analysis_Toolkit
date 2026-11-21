@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.agents/
+.codex/
+logs/
+build/
+dist/
+*.egg-info/
+installer/output/
+.DS_Store
+._*
+портобл/
+portable/

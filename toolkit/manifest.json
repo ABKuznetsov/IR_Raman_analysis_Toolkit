@@ -1,0 +1,19 @@
+{
+  "toolkit_version": "1.0.0",
+  "manifest_version": 1,
+  "repository": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit",
+  "apps": {
+    "ir_raman_phase_finder": {
+      "name": "IR/Raman Phase Finder",
+      "version": "1.1.0",
+      "entry_module": "vibrational_finder.apps.finder_gui_release",
+      "folder": "Vibrational_Finder",
+      "requirements": "pyproject.toml",
+      "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/latest",
+      "manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/manifest.json",
+      "update_manifest_url": "https://raw.githubusercontent.com/ABKuznetsov/IR_Raman_analysis_Toolkit/main/toolkit/updates/ir_raman_phase_finder.json",
+      "macos_installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v1.1.0/IR_Raman_Phase_Finder_macOS_1.1.0.pkg",
+      "macos_installer_sha256": "8ef47f32437774291c2811d1dfabe9f59ba45f2505928f7e974fbe0dd77c58d1"
+    }
+  }
+}

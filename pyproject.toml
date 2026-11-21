@@ -1,0 +1,47 @@
+[project]
+name = "ir-raman-phase-finder"
+version = "1.1.0"
+description = "IR/Raman Phase Finder search-match toolkit built on a shared Finder architecture."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pybaselines",
+    "pyqtgraph==0.14.0",
+    "PySide6==6.7.3",
+    "certifi",
+    "pyreadr",
+    "rdata",
+    "ijson>=3.3,<4",
+]
+
+[project.optional-dependencies]
+formats = [
+    "ramanchada2>=1.3.1,<2",
+    "pyarrow>=14",
+]
+research = [
+    "pyarrow>=14",
+]
+
+[project.scripts]
+ir-raman-phase-finder = "vibrational_finder.apps.finder_cli:main"
+ir-raman-phase-finder-gui = "vibrational_finder.apps.finder_gui_release:main"
+ir-raman-phase-finder-gui-next = "vibrational_finder.apps.finder_gui_next:main"
+ir-raman-phase-finder-gui-legacy = "vibrational_finder.apps.finder_gui:main"
+raman-finder = "vibrational_finder.apps.raman_cli:main"
+ftir-finder = "vibrational_finder.apps.ftir_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "Vibrational_Finder"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["Vibrational_Finder"]
+
+[tool.setuptools.package-data]
+"vibrational_finder.ui" = ["assets/*.svg"]

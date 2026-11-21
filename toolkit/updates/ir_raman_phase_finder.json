@@ -1,0 +1,11 @@
+{
+  "app_id": "ir_raman_phase_finder",
+  "name": "IR/Raman Phase Finder",
+  "channel": "stable",
+  "release_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v1.1.0",
+  "macos": {
+    "version": "1.1.0",
+    "installer_url": "https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v1.1.0/IR_Raman_Phase_Finder_macOS_1.1.0.pkg",
+    "installer_sha256": "8ef47f32437774291c2811d1dfabe9f59ba45f2505928f7e974fbe0dd77c58d1"
+  }
+}
