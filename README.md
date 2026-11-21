@@ -4,7 +4,9 @@ IR/Raman Phase Finder is a desktop application for Raman and FTIR spectroscopy: 
 
 **macOS:** [Download IR/Raman Phase Finder 1.1.0 (.pkg)](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v1.1.0/IR_Raman_Phase_Finder_macOS_1.1.0.pkg) · [Release notes](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/tag/v1.1.0)
 
-**Windows and Linux:** Version 1.1.0 is available from source. No installers for these platforms are included in this release.
+**Windows:** [Download IR/Raman Phase Finder 1.1.0 (.exe)](https://github.com/ABKuznetsov/IR_Raman_analysis_Toolkit/releases/download/v1.1.0/IR_Raman_analysis_Toolkit_Setup_1.1.0.exe)
+
+**Linux:** Version 1.1.0 is available from source.
 
 ## What you can do
 
@@ -14,6 +16,8 @@ IR/Raman Phase Finder is a desktop application for Raman and FTIR spectroscopy: 
 - Compare spectra with reference lines, markers and vibrational assignments, and export PNG, JPEG, SVG or PDF figures.
 
 ## Installation
+
+On Windows 10 or later (x64), run the EXE installer. It can create a Desktop shortcut and prepare the shared Sci Python environment. First-time environment setup requires internet access.
 
 On macOS, run the PKG and open **IR Raman Phase Finder** from Applications. The first launch may need internet access to prepare the Python environment. After setup, the main window opens directly and checks for updates in the background.
 
